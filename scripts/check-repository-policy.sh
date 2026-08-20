@@ -10,11 +10,36 @@ required_files=(
   docs/CONTRIBUTING.md
   docs/ROADMAP.md
   docs/VERIFICATION.md
+  coverage-baseline.toml
+  deny.toml
+  security-exceptions.toml
+  .github/workflows/ci.yml
+  .github/workflows/security.yml
+  .github/rulesets/main-branch.json
 )
 
 for required_file in "${required_files[@]}"; do
   if [[ ! -f "$required_file" ]]; then
     echo "repository policy: required file is missing: $required_file" >&2
+    exit 1
+  fi
+done
+
+required_executables=(
+  scripts/check-coverage.py
+  scripts/check-ruleset-payload.py
+  scripts/check-security-exceptions.py
+  scripts/codescene-gate.sh
+  scripts/coverage-gate.sh
+  scripts/dependency-gate.sh
+  scripts/gate.py
+  scripts/test-coverage.py
+  scripts/test-gate.py
+)
+
+for required_executable in "${required_executables[@]}"; do
+  if [[ ! -x "$required_executable" ]]; then
+    echo "repository policy: required script is missing or not executable: $required_executable" >&2
     exit 1
   fi
 done

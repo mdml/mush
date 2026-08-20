@@ -1,0 +1,28 @@
+# Dependency policy for cargo-deny 0.20.2. Advisory ignores require a matching,
+# unexpired entry in security-exceptions.toml.
+
+[advisories]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+
+[licenses]
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "Zlib",
+]
+exceptions = [
+  { allow = ["Unicode-3.0"], name = "unicode-ident" },
+]
+
+[bans]
+# The resolved graph currently contains justified transitive duplication in
+# hashbrown and syn. Report it without turning unrelated upstream convergence
+# into a merge blocker.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

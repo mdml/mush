@@ -35,11 +35,11 @@ impl fmt::Display for TaskKind {
 impl FromStr for TaskKind {
     type Err = DomainError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "work" => Ok(Self::Work),
-            "checkpoint" => Ok(Self::Checkpoint),
-            _ => Err(DomainError::Invalid(format!("unknown task kind: {value}"))),
-        }
+        parse_named(
+            value,
+            "task kind",
+            &[("work", Self::Work), ("checkpoint", Self::Checkpoint)],
+        )
     }
 }
 
@@ -87,18 +87,19 @@ impl fmt::Display for ReadinessStatus {
 impl FromStr for ReadinessStatus {
     type Err = DomainError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "unqueued" => Ok(Self::Unqueued),
-            "blocked" => Ok(Self::Blocked),
-            "ready" => Ok(Self::Ready),
-            "claimed" => Ok(Self::Claimed),
-            "running" => Ok(Self::Running),
-            "completed" => Ok(Self::Completed),
-            "intervention_required" => Ok(Self::InterventionRequired),
-            _ => Err(DomainError::Invalid(format!(
-                "unknown readiness status: {value}"
-            ))),
-        }
+        parse_named(
+            value,
+            "readiness status",
+            &[
+                ("unqueued", Self::Unqueued),
+                ("blocked", Self::Blocked),
+                ("ready", Self::Ready),
+                ("claimed", Self::Claimed),
+                ("running", Self::Running),
+                ("completed", Self::Completed),
+                ("intervention_required", Self::InterventionRequired),
+            ],
+        )
     }
 }
 
@@ -116,14 +117,15 @@ impl FromStr for ExecutionStatus {
     type Err = DomainError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "running" => Ok(Self::Running),
-            "succeeded" => Ok(Self::Succeeded),
-            "interrupted" => Ok(Self::Interrupted),
-            _ => Err(DomainError::Invalid(format!(
-                "unknown execution status: {value}"
-            ))),
-        }
+        parse_named(
+            value,
+            "execution status",
+            &[
+                ("running", Self::Running),
+                ("succeeded", Self::Succeeded),
+                ("interrupted", Self::Interrupted),
+            ],
+        )
     }
 }
 
@@ -139,13 +141,11 @@ impl fmt::Display for TaskStatus {
 impl FromStr for TaskStatus {
     type Err = DomainError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pending" => Ok(Self::Pending),
-            "completed" => Ok(Self::Completed),
-            _ => Err(DomainError::Invalid(format!(
-                "unknown task status: {value}"
-            ))),
-        }
+        parse_named(
+            value,
+            "task status",
+            &[("pending", Self::Pending), ("completed", Self::Completed)],
+        )
     }
 }
 
@@ -179,6 +179,13 @@ impl FromStr for CheckpointDecision {
             ))),
         }
     }
+}
+
+fn parse_named<T: Copy>(value: &str, name: &str, variants: &[(&str, T)]) -> Result<T, DomainError> {
+    variants
+        .iter()
+        .find_map(|(candidate, parsed)| (*candidate == value).then_some(*parsed))
+        .ok_or_else(|| DomainError::Invalid(format!("unknown {name}: {value}")))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

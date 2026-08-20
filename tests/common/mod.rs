@@ -1,3 +1,137 @@
+use mush::{Agent, DomainError, Store, Task};
+
+#[allow(dead_code)]
+pub trait StoreTestExt {
+    fn register_agent_args(
+        &self,
+        project_id: i64,
+        name: &str,
+        harness: &str,
+        model: &str,
+        settings: &str,
+        checkpoint: bool,
+    ) -> Result<Agent, DomainError>;
+
+    fn add_work_task_args(
+        &self,
+        project_id: i64,
+        agent_id: i64,
+        description: &str,
+        parent_task_id: Option<i64>,
+    ) -> Result<Task, DomainError>;
+
+    fn claim_launch_args(
+        &mut self,
+        task_id: i64,
+        runner_id: &str,
+        runner_boot_id: &str,
+        runner_pid: u32,
+    ) -> Result<bool, DomainError>;
+
+    fn begin_execution_args(
+        &mut self,
+        task_id: i64,
+        session_id: Option<&str>,
+        worktree_name: Option<&str>,
+        artifact_dir: &std::path::Path,
+        boot_id: &str,
+    ) -> Result<Task, DomainError>;
+
+    fn finish_work_execution_args(
+        &mut self,
+        task_id: i64,
+        execution_attempt: i64,
+        result: &str,
+        evidence: &str,
+    ) -> Result<Task, DomainError>;
+}
+
+impl StoreTestExt for Store {
+    fn register_agent_args(
+        &self,
+        project_id: i64,
+        name: &str,
+        harness: &str,
+        model: &str,
+        settings: &str,
+        checkpoint: bool,
+    ) -> Result<Agent, DomainError> {
+        self.register_agent(mush::store::AgentRegistration {
+            project_id,
+            name,
+            harness,
+            model,
+            settings,
+            checkpoint,
+        })
+    }
+
+    fn add_work_task_args(
+        &self,
+        project_id: i64,
+        agent_id: i64,
+        description: &str,
+        parent_task_id: Option<i64>,
+    ) -> Result<Task, DomainError> {
+        self.add_work_task(mush::store::WorkTaskRequest {
+            project_id,
+            agent_id,
+            description,
+            parent_task_id,
+        })
+    }
+
+    fn claim_launch_args(
+        &mut self,
+        task_id: i64,
+        runner_id: &str,
+        runner_boot_id: &str,
+        runner_pid: u32,
+    ) -> Result<bool, DomainError> {
+        self.claim_launch(mush::store::LaunchClaim {
+            task_id,
+            runner_id,
+            runner_boot_id,
+            runner_pid,
+        })
+    }
+
+    fn begin_execution_args(
+        &mut self,
+        task_id: i64,
+        session_id: Option<&str>,
+        worktree_name: Option<&str>,
+        artifact_dir: &std::path::Path,
+        boot_id: &str,
+    ) -> Result<Task, DomainError> {
+        self.begin_execution(mush::store::ExecutionStart {
+            task_id,
+            session_id,
+            worktree_name,
+            artifact_dir,
+            boot_id,
+            claimed_runner_id: None,
+        })
+    }
+
+    fn finish_work_execution_args(
+        &mut self,
+        task_id: i64,
+        execution_attempt: i64,
+        result: &str,
+        evidence: &str,
+    ) -> Result<Task, DomainError> {
+        self.finish_work_execution(mush::store::WorkExecutionResult {
+            owner: mush::store::ExecutionOwner {
+                task_id,
+                execution_attempt,
+            },
+            result,
+            evidence,
+        })
+    }
+}
+
 #[cfg(unix)]
 pub fn install_script(path: &std::path::Path, script: &str) {
     use std::os::unix::fs::PermissionsExt;

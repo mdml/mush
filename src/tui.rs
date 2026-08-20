@@ -19,50 +19,93 @@ pub fn snapshot(store: &Store, project_id: Option<i64>) -> Result<String, Domain
     let completed = completed_ids(&tasks);
     let dependencies = store.all_dependencies()?;
     let mut output = String::from("Mush tasks\n");
-    for task in tasks {
-        output.push_str(&format!(
-            "#{} [{} / {}] {} (readiness: {})",
-            task.id, task.kind, task.status, task.description, task.readiness_status
+    for task in &tasks {
+        output.push_str(&snapshot_task(
+            task,
+            dependencies.get(&task.id).map(Vec::as_slice),
+            &reviewed,
+            &completed,
         ));
-        if let Some(parent) = task.parent_task_id {
-            output.push_str(&format!(" (parent #{parent})"));
-        }
-        if let Some(subject) = task.subject_task_id {
-            output.push_str(&format!(" (subject #{subject})"));
-        }
-        if let Some(previous) = task.previous_task_id {
-            output.push_str(&format!(" (previous #{previous})"));
-        }
-        output.push('\n');
-        if let Some(prerequisites) = dependencies.get(&task.id) {
-            output.push_str(&format!("  prerequisites: {:?}\n", prerequisites));
-        }
-        if awaits_checkpoint(&task, &reviewed) {
-            output.push_str("  no checkpoint yet\n");
-        }
-        if let Some(subject) = awaited_subject(&task, &completed) {
-            output.push_str(&format!("  awaiting subject: #{subject} not completed\n"));
-        }
-        if let Some(decision) = task.decision {
-            output.push_str(&format!("  decision: {decision}\n"));
-        }
-        if let Some(execution) = task.execution_status {
-            output.push_str(&format!(
-                "  execution: {execution} (attempt {})\n",
-                task.execution_attempt
-            ));
-        }
-        if let Some(intervention) = &task.intervention {
-            output.push_str(&format!("  intervention: {intervention}\n"));
-        }
-        if let Some(evidence) = task.evidence {
-            output.push_str("  evidence (Markdown):\n");
-            for line in evidence.lines() {
-                output.push_str(&format!("    {line}\n"));
-            }
-        }
     }
     Ok(output)
+}
+
+fn snapshot_task(
+    task: &Task,
+    prerequisites: Option<&[i64]>,
+    reviewed: &std::collections::HashSet<i64>,
+    completed: &std::collections::HashSet<i64>,
+) -> String {
+    let mut output = format!(
+        "#{} [{} / {}] {} (readiness: {})",
+        task.id, task.kind, task.status, task.description, task.readiness_status
+    );
+    output.push_str(&relationship_summary(task));
+    output.push('\n');
+    if let Some(prerequisites) = prerequisites {
+        output.push_str(&format!("  prerequisites: {prerequisites:?}\n"));
+    }
+    output.push_str(&review_summary(task, reviewed, completed));
+    output.push_str(&execution_summary(task));
+    output.push_str(&evidence_summary(task));
+    output
+}
+
+fn relationship_summary(task: &Task) -> String {
+    let mut output = String::new();
+    if let Some(parent) = task.parent_task_id {
+        output.push_str(&format!(" (parent #{parent})"));
+    }
+    if let Some(subject) = task.subject_task_id {
+        output.push_str(&format!(" (subject #{subject})"));
+    }
+    if let Some(previous) = task.previous_task_id {
+        output.push_str(&format!(" (previous #{previous})"));
+    }
+    output
+}
+
+fn review_summary(
+    task: &Task,
+    reviewed: &std::collections::HashSet<i64>,
+    completed: &std::collections::HashSet<i64>,
+) -> String {
+    let mut output = String::new();
+    if awaits_checkpoint(task, reviewed) {
+        output.push_str("  no checkpoint yet\n");
+    }
+    if let Some(subject) = awaited_subject(task, completed) {
+        output.push_str(&format!("  awaiting subject: #{subject} not completed\n"));
+    }
+    if let Some(decision) = task.decision {
+        output.push_str(&format!("  decision: {decision}\n"));
+    }
+    output
+}
+
+fn execution_summary(task: &Task) -> String {
+    let mut output = String::new();
+    if let Some(execution) = task.execution_status {
+        output.push_str(&format!(
+            "  execution: {execution} (attempt {})\n",
+            task.execution_attempt
+        ));
+    }
+    if let Some(intervention) = &task.intervention {
+        output.push_str(&format!("  intervention: {intervention}\n"));
+    }
+    output
+}
+
+fn evidence_summary(task: &Task) -> String {
+    let Some(evidence) = &task.evidence else {
+        return String::new();
+    };
+    let mut output = String::from("  evidence (Markdown):\n");
+    for line in evidence.lines() {
+        output.push_str(&format!("    {line}\n"));
+    }
+    output
 }
 
 /// Ids of work tasks that already have a checkpoint reviewing them.
@@ -126,27 +169,40 @@ fn event_loop(
         selected = selected.min(tasks.len().saturating_sub(1));
         terminal.draw(|frame| draw(frame, &tasks, selected))?;
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => return Ok(()),
-                KeyCode::Down | KeyCode::Char('j') => {
-                    selected = (selected + 1).min(tasks.len().saturating_sub(1))
-                }
-                KeyCode::Up | KeyCode::Char('k') => selected = selected.saturating_sub(1),
-                KeyCode::Char('a') => {
-                    decide_selected(store, &tasks, selected, CheckpointDecision::Accepted)?
-                }
-                KeyCode::Char('b') => {
-                    decide_selected(store, &tasks, selected, CheckpointDecision::Blocked)?
-                }
-                KeyCode::Char('r') => decide_selected(
-                    store,
-                    &tasks,
-                    selected,
-                    CheckpointDecision::RevisionRequested,
-                )?,
-                _ => {}
+            match handle_key(&mut selected, tasks.len(), key.code) {
+                UiAction::Quit => return Ok(()),
+                UiAction::Decide(decision) => decide_selected(store, &tasks, selected, decision)?,
+                UiAction::Continue => {}
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UiAction {
+    Continue,
+    Quit,
+    Decide(CheckpointDecision),
+}
+
+/// Apply one key to navigation state and return any domain action the event
+/// loop should perform. Keeping this decision independent of terminal I/O
+/// makes navigation and shortcuts deterministic.
+fn handle_key(selected: &mut usize, task_count: usize, key: KeyCode) -> UiAction {
+    match key {
+        KeyCode::Char('q') => UiAction::Quit,
+        KeyCode::Down | KeyCode::Char('j') => {
+            *selected = (*selected + 1).min(task_count.saturating_sub(1));
+            UiAction::Continue
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            *selected = selected.saturating_sub(1);
+            UiAction::Continue
+        }
+        KeyCode::Char('a') => UiAction::Decide(CheckpointDecision::Accepted),
+        KeyCode::Char('b') => UiAction::Decide(CheckpointDecision::Blocked),
+        KeyCode::Char('r') => UiAction::Decide(CheckpointDecision::RevisionRequested),
+        _ => UiAction::Continue,
     }
 }
 
@@ -156,19 +212,21 @@ fn decide_selected(
     selected: usize,
     decision: CheckpointDecision,
 ) -> Result<(), DomainError> {
-    let completed = completed_ids(tasks);
-    if let Some(task) = tasks
-        .get(selected)
-        .filter(|task| task.kind == TaskKind::Checkpoint)
-        // A checkpoint awaiting its subject cannot be decided before that
-        // subject completes; the domain rejects it too, this merely keeps the
-        // TUI from offering it.
-        .filter(|task| awaited_subject(task, &completed).is_none())
-    {
+    if let Some(task) = eligible_checkpoint(tasks, selected) {
         let evidence = task.evidence.clone().unwrap_or_default();
         store.decide_checkpoint(task.id, decision, &evidence)?;
     }
     Ok(())
+}
+
+/// Return the selected checkpoint only when the TUI may offer a decision.
+/// The domain repeats this guard when the decision is persisted.
+fn eligible_checkpoint(tasks: &[Task], selected: usize) -> Option<&Task> {
+    let completed = completed_ids(tasks);
+    tasks
+        .get(selected)
+        .filter(|task| task.kind == TaskKind::Checkpoint)
+        .filter(|task| awaited_subject(task, &completed).is_none())
 }
 
 fn draw(frame: &mut ratatui::Frame<'_>, tasks: &[Task], selected: usize) {
@@ -247,4 +305,9 @@ fn task_details(task: &Task) -> String {
         task.artifact_dir.as_deref().unwrap_or("—"),
         task.evidence.as_deref().unwrap_or("—")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    include!("../tests/unit/tui.rs");
 }

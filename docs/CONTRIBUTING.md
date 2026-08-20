@@ -1,12 +1,12 @@
 # Contributing
 
-Mush is a pre-alpha Rust application. The checked-in command ladder covers the current implementation, while merge checks assigned to later setup decisions fail explicitly rather than being reported as passing.
+Mush is a pre-alpha Rust application. The checked-in command ladder covers the current implementation and fails explicitly when a required tool, credential, or measurement is unavailable.
 
 ## Getting started
 
 Clone the repository and read [`../AGENTS.md`](../AGENTS.md), [`AGENTS.md`](AGENTS.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`ABSTRACTIONS.md`](ABSTRACTIONS.md), and [`ROADMAP.md`](ROADMAP.md).
 
-Development requires the pinned Rust toolchain and `just`. Lefthook is required to install the checked-in hooks with `just hooks-install`. Additional merge-gate tools and their policies remain deliberately inactive as documented in [`VERIFICATION.md`](VERIFICATION.md).
+Development requires the pinned Rust toolchain, `just`, and Python 3.11 or newer. The full gate additionally requires cargo-llvm-cov 0.8.7, `nightly-2026-07-30` with `llvm-tools-preview`, cargo-deny 0.20.2, CodeScene CLI 1.0.39, `jq`, network access, and `CS_ACCESS_TOKEN`. Lefthook is required to install the checked-in hooks with `just hooks-install`.
 
 ## Development workflow
 
@@ -14,7 +14,7 @@ Work against the active milestone in [`ROADMAP.md`](ROADMAP.md). Prefer a small 
 
 Before changing a durable boundary, update the relevant design document or add a focused decision record. Keep prose soft-wrapped: one line per paragraph or bullet, without artificial column wrapping.
 
-The command ladder and its semantics live only in [`VERIFICATION.md`](VERIFICATION.md). Use `just fast` for local feedback and `just check` for handoff; `just gate` fails until every documented merge requirement is activated.
+The command ladder and its semantics live only in [`VERIFICATION.md`](VERIFICATION.md). Use `just fast` for local feedback, `just check` for handoff, and `just gate` before opening or merging a pull request. Use `just gate-verbose` for the same requirements with complete successful output.
 
 ## Commits and worktrees
 
@@ -39,4 +39,4 @@ Update the canonical document instead of repeating the same rule elsewhere. Docu
 
 Add a dependency only when the active slice needs it. Pin toolchain and verification-tool versions so contributors and automation run the same checks. Record project-specific usage for a substantial vendor or integration in `docs/guides/` when the dependency is adopted; do not create empty guides in anticipation.
 
-Dependency changes should include the relevant tests, verification, and documentation. Security, license, and update checks become part of the gate when the Rust scaffold activates the corresponding tools.
+Dependency changes should include the relevant tests, verification, and documentation. Security, license, ban, and source checks are enforced by the cargo-deny policy. Any advisory suppression must be registered with a rationale, owner, decision link, and expiration date in `security-exceptions.toml`.

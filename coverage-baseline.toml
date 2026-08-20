@@ -1,0 +1,16 @@
+# Coverage policy measured with cargo-llvm-cov 0.8.7 and the pinned nightly.
+# Raising a ratchet is routine. Lowering one requires an amended decision record.
+toolchain = "nightly-2026-07-30"
+cargo_llvm_cov = "0.8.7"
+
+[scope]
+production_paths = ["src/"]
+non_executable = ["src/store.rs"]
+
+[baseline]
+line = 90.92
+branch = 83.73
+
+[floor]
+line = 90.0
+branch = 80.0

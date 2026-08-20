@@ -12,7 +12,7 @@ Mush advances through one active, usable vertical slice at a time. This file own
 
 **Current slice:** Establish and enforce the quality baseline, then remediate what it exposes. Decide coverage measurement and ratcheting, CodeScene credential and supported-file policy, and dependency security and license policy; make `just gate` an honestly usable merge-confidence signal; enforce its deterministic checks on pull requests to protected `main`; and split production modules where measured cohesion shows that responsibilities have accumulated. Do not add more M4 behavior until this slice passes its gate.
 
-The trigger is observed rather than speculative. The current production code has 80.12% line coverage, while `store.rs` has grown to 1,734 lines and `executor.rs` to 850 lines. Existing tests provide substantial behavioral evidence, but the repository does not measure branch coverage, enforce a coverage ratchet, run CodeScene, or apply its documented dependency policy. A deliberately failing `just gate` has made those absences visible without controlling further growth.
+The trigger was observed rather than speculative. At the start of the slice, production code had 80.12% line coverage, while `store.rs` had grown to 1,734 lines and `executor.rs` to 850 lines. Existing tests provided substantial behavioral evidence, but the repository did not measure branch coverage, enforce a coverage ratchet, run CodeScene, or apply its documented dependency policy. A deliberately failing `just gate` made those absences visible without controlling further growth.
 
 **Gate:** Given a useful goal rather than a prewritten task graph, a fresh coordinator using the installed Mush skill delegates and adapts across at least two harnesses. The launching conversation may disappear after work is queued. Mush advances the declared graph until fresh judgment or a specific intervention is required, and blocking observation provides durable progress without conversational polling. The result and its revisions remain understandable without reconstructing transcripts.
 
@@ -32,6 +32,7 @@ Blocking observation may already satisfy M4's notification boundary. The gate ru
 
 - [Dynamic task graph and durable observation](decisions/2026-08-18-m4-dynamic-task-graph.md) establishes the task graph, readiness, delivery, and observation model.
 - [The explicit runner surface](decisions/2026-08-19-explicit-runner-surface.md) supersedes that record's launch-pump and same-boot liveness choices; its other consequences remain in force.
+- [Quality verification policy](decisions/2026-08-20-quality-verification-policy.md) establishes measured coverage ratchets, stock-rule CodeScene enforcement, dependency policy, clean-checkout checks, and protected-main requirements for the active stabilization slice.
 
 ## Milestone sequence
 
