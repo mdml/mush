@@ -25,3 +25,7 @@ One deviation stands and is scheduled: the Cursor adapter's hardcoded `--force -
 [ARCHITECTURE.md](../ARCHITECTURE.md) records the layer rule as maintained truth and [AGENTS.md](../../AGENTS.md) extends the harness-adapter boundary with the never-writes-configuration guarantee, which the README states to users. Adding a harness now includes classifying each of its controls into a layer, and a control that fits none of them is a design problem to resolve before the adapter lands.
 
 Until the remediation lands, registered Cursor agents continue to mean "run everything", and the machine-level deny-list remains the only backstop — unchanged behavior, now stated rather than implied. Cursor's classifier and sandbox rollout are server-side, so an executable version pin does not pin autonomy behavior there; evidence, not the pin, is what records the behavior a run actually got.
+
+## Amendment 2026-08-20
+
+The scheduled Cursor remediation landed as decided, so no Cursor agent's autonomy is chosen in Mush's source any longer. `CursorSettings` requires `approval_mode`; the adapter emits `--force` for `unrestricted` and `--auto-review` for `auto-review`, refuses `allowlist`, and keeps `--trust`. [ARCHITECTURE.md](../ARCHITECTURE.md) owns the resulting behavior and [the harness setup guide](../guides/harness-setup.md) records each adapter's machine-layer assumptions. The paragraph above describes the state before that change.

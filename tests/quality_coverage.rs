@@ -483,3 +483,170 @@ fn executor_registration_and_ownership_failures_are_explicit() {
         .unwrap_err();
     assert!(running.to_string().contains("already executing"));
 }
+
+fn cursor_settings_json(approval_mode: &str) -> String {
+    serde_json::json!({
+        "executable": "cursor-agent",
+        "version": "2026.08.11-e8db854",
+        "model": "composer-2.5",
+        "approval_mode": approval_mode,
+    })
+    .to_string()
+}
+
+#[test]
+fn cursor_settings_require_an_executable_approval_mode() {
+    validate_agent_registration("cursor", &cursor_settings_json("unrestricted"), false).unwrap();
+    validate_agent_registration("cursor", &cursor_settings_json("auto-review"), false).unwrap();
+
+    let allowlist =
+        validate_agent_registration("cursor", &cursor_settings_json("allowlist"), false)
+            .unwrap_err()
+            .to_string();
+    assert!(
+        allowlist.contains(r#"cursor approval_mode "allowlist""#),
+        "{allowlist}"
+    );
+    assert!(allowlist.contains("still reporting success"), "{allowlist}");
+    assert!(
+        allowlist.contains(r#"register "unrestricted" or "auto-review""#),
+        "{allowlist}"
+    );
+
+    let unknown_mode = validate_agent_registration("cursor", &cursor_settings_json("plan"), false)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        unknown_mode.contains("not one of cursor-agent's run modes"),
+        "{unknown_mode}"
+    );
+
+    let missing = validate_agent_registration(
+        "cursor",
+        r#"{"executable":"cursor-agent","model":"composer-2.5"}"#,
+        false,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(missing.contains("invalid cursor settings"), "{missing}");
+    assert!(missing.contains("approval_mode"), "{missing}");
+
+    let foreign = validate_agent_registration(
+        "cursor",
+        r#"{"executable":"cursor-agent","model":"composer-2.5","approval_mode":"auto-review","permission_mode":"acceptEdits"}"#,
+        false,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        foreign.contains("unknown field `permission_mode`"),
+        "{foreign}"
+    );
+
+    let checkpoint =
+        validate_agent_registration("cursor", &cursor_settings_json("auto-review"), true)
+            .unwrap_err()
+            .to_string();
+    assert!(checkpoint.contains("review_prompt"), "{checkpoint}");
+}
+
+#[test]
+fn cursor_registration_and_repair_report_approval_mode_failures_through_the_cli() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let project_dir = tempfile::tempdir().unwrap();
+    let project = successful_json(
+        &database,
+        &[
+            "project",
+            "register",
+            "--name",
+            "cursor",
+            "--path",
+            project_dir.path().to_str().unwrap(),
+        ],
+    );
+    let project_id = project["id"].as_i64().unwrap().to_string();
+    let register = |settings: &str| -> std::process::Output {
+        mush_command(
+            &database,
+            &[
+                "agent",
+                "register",
+                "--project",
+                &project_id,
+                "--name",
+                "worker",
+                "--harness",
+                "cursor",
+                "--model",
+                "composer-2.5",
+                "--settings",
+                settings,
+            ],
+        )
+    };
+
+    let refused = register(&cursor_settings_json("allowlist"));
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains(r#"cursor approval_mode "allowlist""#)
+    );
+
+    // Settings written before the approval mode became required no longer
+    // register; the operator repairs them explicitly rather than inheriting a
+    // silent default.
+    let stale = register(r#"{"executable":"cursor-agent","model":"composer-2.5"}"#);
+    assert_eq!(stale.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("approval_mode"));
+
+    let agent = successful_json(
+        &database,
+        &[
+            "agent",
+            "register",
+            "--project",
+            &project_id,
+            "--name",
+            "worker",
+            "--harness",
+            "cursor",
+            "--model",
+            "composer-2.5",
+            "--settings",
+            &cursor_settings_json("unrestricted"),
+        ],
+    );
+    let agent_id = agent["id"].as_i64().unwrap().to_string();
+
+    let updated = successful_json(
+        &database,
+        &[
+            "agent",
+            "update",
+            &agent_id,
+            "--settings",
+            &cursor_settings_json("auto-review"),
+        ],
+    );
+    let stored: serde_json::Value =
+        serde_json::from_str(updated["settings"].as_str().unwrap()).unwrap();
+    assert_eq!(stored["approval_mode"], "auto-review");
+
+    let refused_update = mush_command(
+        &database,
+        &[
+            "agent",
+            "update",
+            &agent_id,
+            "--settings",
+            &cursor_settings_json("allowlist"),
+        ],
+    );
+    assert_eq!(refused_update.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&refused_update.stderr).contains("allowlist"));
+    let unchanged = successful_json(&database, &["agent", "update", &agent_id]);
+    let unchanged: serde_json::Value =
+        serde_json::from_str(unchanged["settings"].as_str().unwrap()).unwrap();
+    assert_eq!(unchanged["approval_mode"], "auto-review");
+}
