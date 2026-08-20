@@ -2,7 +2,9 @@
 //! the explicit runner surface that executes it.
 
 use mush::{
-    ReadinessStatus, Store, lock,
+    Executor, ReadinessStatus, Store,
+    executor::RunOptions,
+    lock,
     runner::{CONCURRENCY_BOUND, EXIT_DID_NOT_START},
 };
 use serde_json::Value;
@@ -634,6 +636,88 @@ fn start_reports_that_it_started_nothing_with_a_distinct_exit_code() {
     }
     assert_eq!(harness.readiness(task), ReadinessStatus::Ready);
     assert_eq!(harness.store().task(task).unwrap().intervention, None);
+}
+
+/// The human front door reports a live execution the same way the worker front
+/// door does when another process already holds the task lock.
+#[cfg(unix)]
+#[test]
+fn task_run_reports_that_it_started_nothing_when_the_lock_is_held() {
+    let harness = Runnable::new(None);
+    let task = harness.task("held");
+    harness.queue(task);
+    let _held = lock::FileLock::try_acquire(&lock::task_lock_path(&harness.database, task))
+        .unwrap()
+        .expect("the task lock is free");
+    let output = harness.run(&["task", "run", &task.to_string()]);
+    assert_eq!(output.status.code(), Some(EXIT_DID_NOT_START));
+    assert!(
+        stderr_of(&output).contains("already has a live execution"),
+        "{}",
+        stderr_of(&output)
+    );
+    assert_eq!(harness.readiness(task), ReadinessStatus::Ready);
+    assert_eq!(harness.store().task(task).unwrap().intervention, None);
+}
+
+/// A queued failure reached through `runner start` is runner-owned: the
+/// intervention names the execution failure, not the foreground diagnostic.
+#[cfg(unix)]
+#[test]
+fn a_runner_owned_failure_on_queued_work_parks_without_a_foreground_diagnostic() {
+    let harness = Runnable::new(Some("echo 'simulated interruption' >&2; exit 7"));
+    let task = harness.task("failing queued");
+    harness.queue(task);
+
+    let failed = harness.run(&["runner", "start", &task.to_string()]);
+    let code = failed.status.code().expect("start exited normally");
+    assert_ne!(code, 0, "a failed execution is not a success");
+    assert_ne!(
+        code, EXIT_DID_NOT_START,
+        "an execution that started and failed is not a start that did nothing"
+    );
+
+    let parked = harness.store().task(task).unwrap();
+    assert_eq!(
+        parked.readiness_status,
+        ReadinessStatus::InterventionRequired
+    );
+    let intervention = parked.intervention.unwrap();
+    assert!(
+        intervention.contains(&format!("execution of task {task} failed")),
+        "{intervention}"
+    );
+    assert!(
+        !intervention.contains("foreground execution failed"),
+        "runner-owned failures must not use the foreground diagnostic: {intervention}"
+    );
+}
+
+/// A queued failure reached through `Executor::run` is foreground-owned and
+/// records the distinct diagnostic that tells the operator to use task recover.
+#[cfg(unix)]
+#[test]
+fn a_foreground_executor_failure_on_queued_work_records_a_distinct_diagnostic() {
+    let harness = Runnable::new(Some("echo 'simulated interruption' >&2; exit 7"));
+    let task = harness.task("failing foreground");
+    harness.queue(task);
+
+    let error = Executor::new(&harness.database)
+        .run(&mut harness.store(), task, &RunOptions::default())
+        .unwrap_err();
+    assert!(error.to_string().contains("exited with"), "{}", error);
+
+    let parked = harness.store().task(task).unwrap();
+    assert_eq!(
+        parked.readiness_status,
+        ReadinessStatus::InterventionRequired
+    );
+    let intervention = parked.intervention.unwrap();
+    assert!(
+        intervention.contains("foreground execution failed"),
+        "{intervention}"
+    );
+    assert!(intervention.contains("task recover"));
 }
 
 #[cfg(unix)]
