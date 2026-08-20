@@ -10,7 +10,8 @@ The documentation should let a new user understand Mush, let a contributor chang
 - [`PRODUCT.md`](PRODUCT.md) owns the maintained product hypothesis, refusals, and decision authority.
 - [`ABSTRACTIONS.md`](ABSTRACTIONS.md) defines durable product concepts, relationships, and invariants.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) explains components, dependency flow, file organization, and state management.
-- [`ROADMAP.md`](ROADMAP.md) states the active milestone, sequence, gates, and deferred ideas.
+- [`ROADMAP.md`](ROADMAP.md) states the milestone sequence, gates, operating rules, and deferred ideas.
+- [`current-milestone.md`](current-milestone.md) owns the active milestone, its active slice, and the slice brief.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) explains setup and the development workflow.
 - [`VERIFICATION.md`](VERIFICATION.md) defines correctness and quality standards and the command ladder.
 - `guides/` explains how to operate an adopted integration or workflow.
@@ -31,10 +32,12 @@ Mush coordinates agents that may join with no conversational context. A fact rep
 - Keep integration-specific operational detail in `guides/`, not in architecture or the roadmap.
 - Use a decision record for consequential rationale. Maintained documents describe the resulting system rather than replaying the discussion that produced it.
 
-### Roadmap
+### Roadmap and current milestone
 
 - There is exactly one active milestone. If work requires two active milestones, redefine the milestone boundary before proceeding.
 - There is exactly one active vertical slice within that milestone.
+- The active milestone, its slice, and the slice brief live in `current-milestone.md`, which is revised freely as work proceeds; git is its history. The milestone sequence, closed history, and parking lot live in the roadmap.
+- A slice brief contains only sentences whose change would require maintainer adjudication — goal, worked example, settled decisions, discretion boundary, refusals, acceptance evidence, and stop conditions. Progress tracking and task lists belong nowhere in the documentation.
 - A milestone has one outcome and one gate.
 - Describe expected work as a revisable path to the gate rather than a numbered schedule.
 - Future milestones state outcomes and gates, not speculative implementation designs.
@@ -62,7 +65,7 @@ Mush coordinates agents that may join with no conversational context. A fact rep
 - Name a decision record `YYYY-MM-DD-short-title.md` using the date the decision was accepted.
 - A decision packet awaiting maintainer adjudication may carry an explicit `proposed` status; do not describe it as accepted or update maintained abstractions as though it were accepted.
 - Record the context, decision, and consequences. Include alternatives only when they help a future maintainer understand why the boundary exists.
-- Do not silently rewrite an accepted decision to make history look cleaner. Add a dated amendment or a superseding decision and link the records in both directions.
+- A decision record is immutable once accepted. Do not edit it for any reason; correct, evolve, or supersede it with a new decision record that names what it supersedes and why. Records amended before this convention keep their dated amendments as history.
 - Update the maintained abstraction or architecture document when a decision changes the current system. A decision record is rationale, not the sole description of current behavior.
 
 ## How to change documentation
@@ -70,8 +73,8 @@ Mush coordinates agents that may join with no conversational context. A fact rep
 1. Identify the canonical owner of the fact before editing.
 2. Read the linked abstraction, architecture, roadmap, and decision context needed to avoid contradiction.
 3. Update the canonical document, then replace any necessary repetition elsewhere with a link.
-4. If a durable boundary changes, add or amend a decision record and update its maintained owner.
-5. Check that roadmap status, examples, paths, and links remain public and current.
+4. If a durable boundary changes, add a decision record — superseding an existing one if needed — and update its maintained owner.
+5. Check that current-milestone status, roadmap sequence, examples, paths, and links remain public and current.
 6. Run the repository policy check and the strongest applicable command from [`VERIFICATION.md`](VERIFICATION.md).
 
 Do not preserve obsolete text merely as history. Git already records edits; decision records preserve only the rationale that the maintained documentation still needs.

@@ -9,6 +9,7 @@ required_files=(
   docs/ARCHITECTURE.md
   docs/CONTRIBUTING.md
   docs/ROADMAP.md
+  docs/current-milestone.md
   docs/VERIFICATION.md
   coverage-baseline.toml
   deny.toml
