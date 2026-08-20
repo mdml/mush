@@ -1,7 +1,9 @@
 use clap::{Args, Parser, Subcommand};
 use mush::{
     CheckpointDecision, DomainError, ReadinessStatus, Store, TaskKind, TaskStatus, database_path,
-    executor::RunOptions, runner,
+    executor::RunOptions,
+    runner,
+    store::{AgentRegistration, WorkTaskRequest},
 };
 use std::{
     path::PathBuf,
@@ -221,13 +223,26 @@ fn run() -> Result<i32, DomainError> {
     // Nothing reconciles or launches at startup: the runner group is the only
     // surface that advances queued work.
     let mut store = Store::open(&path)?;
-    match app.command {
+    dispatch(&mut store, app.command, app.json)
+}
+
+fn dispatch(store: &mut Store, command: Command, json: bool) -> Result<i32, DomainError> {
+    match command {
         Command::Project {
             command: ProjectCommand::Register { name, path },
-        } => output(&store.register_project(&name, &path)?, app.json)?,
-        Command::Agent {
-            command: AgentCommand::Register(args),
-        } => {
+        } => output(&store.register_project(&name, &path)?, json)?,
+        Command::Agent { command } => run_agent_command(store, command, json)?,
+        Command::Task { command } => return run_task_command(store, command, json),
+        Command::Checkpoint { command } => run_checkpoint_command(store, command, json)?,
+        Command::Tui { snapshot, project } => run_tui(store, snapshot, project)?,
+        Command::Runner { command } => return run_runner_command(store, command, json),
+    }
+    Ok(0)
+}
+
+fn run_agent_command(store: &Store, command: AgentCommand, json: bool) -> Result<(), DomainError> {
+    match command {
+        AgentCommand::Register(args) => {
             let settings = input(
                 args.settings,
                 args.settings_file.as_deref(),
@@ -236,205 +251,353 @@ fn run() -> Result<i32, DomainError> {
             )?;
             let settings = with_review_prompt(&settings, args.review_prompt_file.as_deref())?;
             output(
-                &store.register_agent(
-                    args.project,
-                    &args.name,
-                    &args.harness,
-                    &args.model,
-                    &settings,
-                    args.checkpoint,
-                )?,
-                app.json,
-            )?
+                &store.register_agent(AgentRegistration {
+                    project_id: args.project,
+                    name: &args.name,
+                    harness: &args.harness,
+                    model: &args.model,
+                    settings: &settings,
+                    checkpoint: args.checkpoint,
+                })?,
+                json,
+            )
         }
-        Command::Agent {
-            command:
-                AgentCommand::Update {
-                    id,
-                    settings,
-                    settings_file,
-                    review_prompt_file,
-                },
+        AgentCommand::Update {
+            id,
+            settings,
+            settings_file,
+            review_prompt_file,
         } => {
-            // Updating starts from the agent's current settings, so a review
-            // prompt can be added or replaced without restating the rest.
             let current = store.agent(id)?.settings;
             let settings = input(settings, settings_file.as_deref(), "settings", &current)?;
             let settings = with_review_prompt(&settings, review_prompt_file.as_deref())?;
-            output(&store.update_agent_settings(id, &settings)?, app.json)?
+            output(&store.update_agent_settings(id, &settings)?, json)
         }
-        Command::Task { command } => match command {
-            TaskCommand::Add {
+    }
+}
+
+fn run_task_command(
+    store: &mut Store,
+    command: TaskCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        observation @ (TaskCommand::Show { .. }
+        | TaskCommand::List { .. }
+        | TaskCommand::Status { .. }
+        | TaskCommand::Wait { .. }) => run_task_observation(store, observation, json),
+        mutation => run_task_mutation(store, mutation, json),
+    }
+}
+
+fn run_task_observation(
+    store: &Store,
+    command: TaskCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        TaskCommand::Show { id } => output(&store.task(id)?, json)?,
+        TaskCommand::List { project } => output(&store.tasks(project)?, json)?,
+        TaskCommand::Status { ids } => output(&store.observe(&ids, true)?, json)?,
+        TaskCommand::Wait {
+            ids,
+            until,
+            timeout,
+        } => wait_for_tasks(
+            store,
+            WaitRequest {
+                ids: &ids,
+                until_all: until == "all",
+                timeout,
+                json,
+            },
+        )?,
+        _ => unreachable!("mutation routed to task observation"),
+    }
+    Ok(0)
+}
+
+fn run_task_mutation(
+    store: &mut Store,
+    command: TaskCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        lifecycle @ (TaskCommand::Add { .. }
+        | TaskCommand::Complete { .. }
+        | TaskCommand::Run { .. }
+        | TaskCommand::PrepareRevision { .. }) => run_task_lifecycle(store, lifecycle, json),
+        workflow => run_task_workflow(store, workflow, json),
+    }
+}
+
+fn run_task_lifecycle(
+    store: &mut Store,
+    command: TaskCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        TaskCommand::Add {
+            project,
+            agent,
+            description,
+            description_file,
+            parent,
+        } => add_task(
+            store,
+            AddTask {
                 project,
                 agent,
                 description,
-                description_file,
+                description_file: description_file.as_deref(),
                 parent,
-            } => {
-                let description =
-                    input(description, description_file.as_deref(), "description", "")?;
-                if description.is_empty() {
-                    return Err(DomainError::Invalid("task description is required".into()));
-                }
-                output(
-                    &store.add_work_task(project, agent, &description, parent)?,
-                    app.json,
-                )?
-            }
-            TaskCommand::Show { id } => output(&store.task(id)?, app.json)?,
-            TaskCommand::List { project } => output(&store.tasks(project)?, app.json)?,
-            TaskCommand::Complete {
-                id,
-                result,
-                evidence,
-            } => {
-                let task = store.complete_work(id, &result, evidence.as_deref())?;
-                output(&task, app.json)?;
-            }
-            TaskCommand::Run {
-                id,
-                worktree,
-                restart_session,
-                prompt_file,
-            } => {
-                // `task run` is the human front door over the same engine
-                // `runner start` uses. It refuses no readiness state: whether
-                // the task is queued decides the bookkeeping, not whether the
-                // command is allowed.
-                let prompt = prompt_file
-                    .as_deref()
-                    .map(std::fs::read_to_string)
-                    .transpose()?;
-                let options = RunOptions {
-                    worktree: worktree.as_deref(),
-                    restart_session,
-                    prompt_override: prompt.as_deref(),
-                };
-                match runner::run(&mut store, id, &options)? {
-                    runner::Started::Task(started) => output(&store.task(started)?, app.json)?,
-                    runner::Started::Nothing(reason) => {
-                        eprintln!("{reason}");
-                        return Ok(runner::EXIT_DID_NOT_START);
-                    }
-                }
-            }
-            TaskCommand::PrepareRevision {
-                id,
-                description_file,
-                worktree,
-            } => output(
-                &store.prepare_revision(
-                    id,
-                    &std::fs::read_to_string(description_file)?,
-                    &worktree,
-                )?,
-                app.json,
-            )?,
-            TaskCommand::Depend {
-                prerequisite,
-                dependent,
-            } => {
-                store.add_dependency(prerequisite, dependent)?;
-                output(&store.task(dependent)?, app.json)?;
-            }
-            TaskCommand::Undepend {
-                prerequisite,
-                dependent,
-            } => {
-                store.remove_dependency(prerequisite, dependent)?;
-                output(&store.task(dependent)?, app.json)?;
-            }
-            TaskCommand::Queue { id } => {
-                let task = store.queue(id)?;
-                output(&task, app.json)?;
-            }
-            TaskCommand::Status { ids } => output(&store.observe(&ids, true)?, app.json)?,
-            TaskCommand::Wait {
-                ids,
-                until,
-                timeout,
-            } => {
-                // Waiting is pure observation: it polls current rows and
-                // returns, and it neither reconciles nor launches.
-                let start = Instant::now();
-                let limit = timeout.map(Duration::from_secs);
-                warn_about_unqueued_work(&store, &ids)?;
-                let mut consecutive_observation_failures = 0_u8;
-                loop {
-                    let mut observation = match store.observe(&ids, until == "all") {
-                        Ok(observation) => {
-                            consecutive_observation_failures = 0;
-                            observation
-                        }
-                        Err(DomainError::NotFound(kind, id)) => {
-                            return Err(DomainError::NotFound(kind, id));
-                        }
-                        Err(error @ DomainError::Invalid(_)) => return Err(error),
-                        Err(error) => {
-                            consecutive_observation_failures += 1;
-                            if consecutive_observation_failures >= 8 {
-                                return Err(error);
-                            }
-                            eprintln!("warning: cannot observe tasks yet: {error}");
-                            std::thread::sleep(Duration::from_millis(250));
-                            continue;
-                        }
-                    };
-                    if observation.terminal {
-                        output(&observation, app.json)?;
-                        break;
-                    }
-                    if limit.is_some_and(|limit| start.elapsed() >= limit) {
-                        observation.timed_out = true;
-                        output(&observation, app.json)?;
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(250));
-                }
-            }
-            TaskCommand::Recover { ids, project } => {
-                let pending = store.recover_launches(&ids, project)?;
-                output(&pending, app.json)?;
-            }
-        },
-        Command::Checkpoint { command } => match command {
-            CheckpointCommand::Create { id } => output(&store.create_checkpoint(id)?, app.json)?,
-            CheckpointCommand::Decide {
-                id,
-                decision,
-                evidence,
-            } => output(&store.decide_checkpoint(id, decision, &evidence)?, app.json)?,
-        },
-        Command::Tui {
-            snapshot: true,
-            project,
-        } => print!("{}", mush::tui::snapshot(&store, project)?),
-        Command::Tui {
-            snapshot: false,
-            project,
-        } => mush::tui::run(&mut store, project)?,
-        Command::Runner { command } => match command {
-            RunnerCommand::Start { id } => match runner::start(&mut store, id)? {
-                runner::Started::Task(started) => {
-                    output(&store.task(started)?, app.json)?;
-                    return Ok(runner::EXIT_EXECUTED);
-                }
-                // No execution began, which is the queue behaving normally: a
-                // caller looping over `runner start` backs off rather than
-                // treating this as a fault, and a supervising `serve` reads
-                // the same code instead of guessing from the task's lock.
-                runner::Started::Nothing(reason) => {
-                    eprintln!("{reason}");
-                    return Ok(runner::EXIT_DID_NOT_START);
-                }
+                json,
             },
-            RunnerCommand::Tick => {
-                let started = runner::tick(&mut store)?;
-                output(&started, app.json)?;
+        )?,
+        TaskCommand::Complete {
+            id,
+            result,
+            evidence,
+        } => {
+            let task = store.complete_work(id, &result, evidence.as_deref())?;
+            output(&task, json)?;
+        }
+        TaskCommand::Run {
+            id,
+            worktree,
+            restart_session,
+            prompt_file,
+        } => {
+            return run_task(
+                store,
+                RunTaskRequest {
+                    id,
+                    worktree,
+                    restart_session,
+                    prompt_file,
+                    json,
+                },
+            );
+        }
+        TaskCommand::PrepareRevision {
+            id,
+            description_file,
+            worktree,
+        } => output(
+            &store.prepare_revision(id, &std::fs::read_to_string(description_file)?, &worktree)?,
+            json,
+        )?,
+        _ => unreachable!("workflow command routed to task lifecycle"),
+    }
+    Ok(0)
+}
+
+fn run_task_workflow(
+    store: &mut Store,
+    command: TaskCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        TaskCommand::Depend {
+            prerequisite,
+            dependent,
+        } => change_dependency(
+            store,
+            DependencyChange {
+                prerequisite,
+                dependent,
+                add: true,
+                json,
+            },
+        )?,
+        TaskCommand::Undepend {
+            prerequisite,
+            dependent,
+        } => change_dependency(
+            store,
+            DependencyChange {
+                prerequisite,
+                dependent,
+                add: false,
+                json,
+            },
+        )?,
+        TaskCommand::Queue { id } => {
+            let task = store.queue(id)?;
+            output(&task, json)?;
+        }
+        TaskCommand::Recover { ids, project } => {
+            let pending = store.recover_launches(&ids, project)?;
+            output(&pending, json)?;
+        }
+        _ => unreachable!("lifecycle or observation command routed to task workflow"),
+    }
+    Ok(0)
+}
+
+struct AddTask<'a> {
+    project: i64,
+    agent: i64,
+    description: Option<String>,
+    description_file: Option<&'a std::path::Path>,
+    parent: Option<i64>,
+    json: bool,
+}
+
+fn add_task(store: &Store, request: AddTask<'_>) -> Result<(), DomainError> {
+    let description = input(
+        request.description,
+        request.description_file,
+        "description",
+        "",
+    )?;
+    if description.is_empty() {
+        return Err(DomainError::Invalid("task description is required".into()));
+    }
+    output(
+        &store.add_work_task(WorkTaskRequest {
+            project_id: request.project,
+            agent_id: request.agent,
+            description: &description,
+            parent_task_id: request.parent,
+        })?,
+        request.json,
+    )
+}
+
+struct RunTaskRequest {
+    id: i64,
+    worktree: Option<String>,
+    restart_session: bool,
+    prompt_file: Option<std::path::PathBuf>,
+    json: bool,
+}
+
+fn run_task(store: &mut Store, request: RunTaskRequest) -> Result<i32, DomainError> {
+    let prompt = request
+        .prompt_file
+        .as_deref()
+        .map(std::fs::read_to_string)
+        .transpose()?;
+    let options = RunOptions {
+        worktree: request.worktree.as_deref(),
+        restart_session: request.restart_session,
+        prompt_override: prompt.as_deref(),
+    };
+    match runner::run(store, request.id, &options)? {
+        runner::Started::Task(started) => output(&store.task(started)?, request.json)?,
+        runner::Started::Nothing(reason) => {
+            eprintln!("{reason}");
+            return Ok(runner::EXIT_DID_NOT_START);
+        }
+    }
+    Ok(0)
+}
+
+struct DependencyChange {
+    prerequisite: i64,
+    dependent: i64,
+    add: bool,
+    json: bool,
+}
+
+fn change_dependency(store: &mut Store, change: DependencyChange) -> Result<(), DomainError> {
+    if change.add {
+        store.add_dependency(change.prerequisite, change.dependent)?;
+    } else {
+        store.remove_dependency(change.prerequisite, change.dependent)?;
+    }
+    output(&store.task(change.dependent)?, change.json)
+}
+
+struct WaitRequest<'a> {
+    ids: &'a [i64],
+    until_all: bool,
+    timeout: Option<u64>,
+    json: bool,
+}
+
+fn wait_for_tasks(store: &Store, request: WaitRequest<'_>) -> Result<(), DomainError> {
+    let start = Instant::now();
+    let limit = request.timeout.map(Duration::from_secs);
+    warn_about_unqueued_work(store, request.ids)?;
+    let mut failures = 0_u8;
+    loop {
+        let mut observation = match store.observe(request.ids, request.until_all) {
+            Ok(observation) => {
+                failures = 0;
+                observation
             }
-            RunnerCommand::Serve => runner::serve(&mut store)?,
-            RunnerCommand::Status => output(&runner::status(&store)?, app.json)?,
+            Err(DomainError::NotFound(kind, id)) => return Err(DomainError::NotFound(kind, id)),
+            Err(error @ DomainError::Invalid(_)) => return Err(error),
+            Err(error) => {
+                failures += 1;
+                if failures >= 8 {
+                    return Err(error);
+                }
+                eprintln!("warning: cannot observe tasks yet: {error}");
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+        };
+        if observation.terminal || limit.is_some_and(|limit| start.elapsed() >= limit) {
+            observation.timed_out = !observation.terminal;
+            return output(&observation, request.json);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn run_checkpoint_command(
+    store: &mut Store,
+    command: CheckpointCommand,
+    json: bool,
+) -> Result<(), DomainError> {
+    match command {
+        CheckpointCommand::Create { id } => output(&store.create_checkpoint(id)?, json),
+        CheckpointCommand::Decide {
+            id,
+            decision,
+            evidence,
+        } => output(&store.decide_checkpoint(id, decision, &evidence)?, json),
+    }
+}
+
+fn run_tui(store: &mut Store, snapshot: bool, project: Option<i64>) -> Result<(), DomainError> {
+    if snapshot {
+        print!("{}", mush::tui::snapshot(store, project)?);
+        Ok(())
+    } else {
+        mush::tui::run(store, project)
+    }
+}
+
+fn run_runner_command(
+    store: &mut Store,
+    command: RunnerCommand,
+    json: bool,
+) -> Result<i32, DomainError> {
+    match command {
+        RunnerCommand::Start { id } => match runner::start(store, id)? {
+            runner::Started::Task(started) => {
+                output(&store.task(started)?, json)?;
+                return Ok(runner::EXIT_EXECUTED);
+            }
+            // No execution began, which is the queue behaving normally: a
+            // caller looping over `runner start` backs off rather than
+            // treating this as a fault, and a supervising `serve` reads
+            // the same code instead of guessing from the task's lock.
+            runner::Started::Nothing(reason) => {
+                eprintln!("{reason}");
+                return Ok(runner::EXIT_DID_NOT_START);
+            }
         },
+        RunnerCommand::Tick => {
+            let started = runner::tick(store)?;
+            output(&started, json)?;
+        }
+        RunnerCommand::Serve => runner::serve(store)?,
+        RunnerCommand::Status => output(&runner::status(store)?, json)?,
     }
     Ok(0)
 }

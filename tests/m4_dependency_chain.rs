@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod common;
+use common::StoreTestExt;
 #[cfg(unix)]
 use common::{claude_settings, fake_claude, git_project, install_script};
 
@@ -29,13 +30,13 @@ fn graph() -> (tempfile::TempDir, tempfile::TempDir, Store, i64, i64) {
         .register_project("project", project_dir.path())
         .unwrap();
     let agent = store
-        .register_agent(project.id, "worker", "manual", "model", "{}", false)
+        .register_agent_args(project.id, "worker", "manual", "model", "{}", false)
         .unwrap();
     let root = store
-        .add_work_task(project.id, agent.id, "root", None)
+        .add_work_task_args(project.id, agent.id, "root", None)
         .unwrap();
     let dependent = store
-        .add_work_task(project.id, agent.id, "dependent", None)
+        .add_work_task_args(project.id, agent.id, "dependent", None)
         .unwrap();
     (state, project_dir, store, root.id, dependent.id)
 }
@@ -96,7 +97,7 @@ impl Runnable {
             .register_project("project", project_dir.path())
             .unwrap();
         let agent = store
-            .register_agent(
+            .register_agent_args(
                 project.id,
                 "worker",
                 "claude-code",
@@ -128,7 +129,7 @@ impl Runnable {
 
     fn task(&self, description: &str) -> i64 {
         self.store()
-            .add_work_task(self.project_id, self.agent_id, description, None)
+            .add_work_task_args(self.project_id, self.agent_id, description, None)
             .unwrap()
             .id
     }
@@ -904,7 +905,7 @@ fn wait_neither_reconciles_nor_launches() {
     // return this to `ready`, so waiting must leave it exactly as it is.
     assert!(
         store
-            .claim_launch(root, "absent", &mush::executor::boot_id(), u32::MAX)
+            .claim_launch_args(root, "absent", &mush::executor::boot_id(), u32::MAX)
             .unwrap()
     );
     let cursor = |database: &Path| -> i64 {
@@ -1044,7 +1045,11 @@ fn reconciliation_requeues_an_abandoned_claim_and_parks_it_after_the_budget() {
     let boot = mush::executor::boot_id();
     store.queue(root).unwrap();
     for attempt in 1..=2 {
-        assert!(store.claim_launch(root, "absent", &boot, u32::MAX).unwrap());
+        assert!(
+            store
+                .claim_launch_args(root, "absent", &boot, u32::MAX)
+                .unwrap()
+        );
         store.reconcile().unwrap();
         assert_eq!(
             store.task(root).unwrap().readiness_status,
@@ -1052,7 +1057,11 @@ fn reconciliation_requeues_an_abandoned_claim_and_parks_it_after_the_budget() {
             "attempt {attempt} should return to the queue"
         );
     }
-    assert!(store.claim_launch(root, "absent", &boot, u32::MAX).unwrap());
+    assert!(
+        store
+            .claim_launch_args(root, "absent", &boot, u32::MAX)
+            .unwrap()
+    );
     store.reconcile().unwrap();
     let parked = store.task(root).unwrap();
     assert_eq!(
@@ -1073,7 +1082,7 @@ fn reconciliation_never_touches_a_locked_execution() {
     let _lock = mush::executor::acquire_execution_lock(&database, root).unwrap();
     assert!(
         store
-            .claim_launch(root, "live", &mush::executor::boot_id(), std::process::id())
+            .claim_launch_args(root, "live", &mush::executor::boot_id(), std::process::id())
             .unwrap()
     );
 
@@ -1126,7 +1135,7 @@ fn recovery_skips_a_task_whose_execution_lock_is_held() {
     let project_id = store.task(root).unwrap().project_id;
     let _lock = mush::executor::acquire_execution_lock(&database, root).unwrap();
     store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1316,12 +1325,12 @@ fn launch_claim_is_idempotent_across_connections_and_status_has_a_cursor() {
     let boot = mush::executor::boot_id();
     assert!(
         first
-            .claim_launch(root, "one", &boot, std::process::id())
+            .claim_launch_args(root, "one", &boot, std::process::id())
             .unwrap()
     );
     assert!(
         !second
-            .claim_launch(root, "two", &boot, std::process::id())
+            .claim_launch_args(root, "two", &boot, std::process::id())
             .unwrap()
     );
     let observation = second.observe(&[root], true).unwrap();
@@ -1344,7 +1353,7 @@ fn manual_execution_and_completion_preserve_queued_launch_invariants() {
 
     store.queue(root).unwrap();
     store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1359,7 +1368,7 @@ fn manual_execution_and_completion_preserve_queued_launch_invariants() {
     let mut second = Store::open(&state.path().join("mush.sqlite")).unwrap();
     assert!(
         second
-            .begin_execution(
+            .begin_execution_args(
                 root,
                 None,
                 None,
@@ -1377,7 +1386,7 @@ fn failed_queued_foreground_execution_is_parked_atomically() {
     let (state, _project, mut store, root, _dependent) = graph();
     store.queue(root).unwrap();
     let running = store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1387,8 +1396,10 @@ fn failed_queued_foreground_execution_is_parked_atomically() {
         .unwrap();
     store
         .interrupt_execution_owned_with_intervention(
-            root,
-            running.execution_attempt,
+            mush::store::ExecutionOwner {
+                task_id: root,
+                execution_attempt: running.execution_attempt,
+            },
             Some("foreground failed"),
         )
         .unwrap();
@@ -1491,7 +1502,11 @@ fn completed_task_is_not_resurrected_by_recovery() {
     let (_state, _project, mut store, root, _dependent) = graph();
     store.queue(root).unwrap();
     let boot = mush::executor::boot_id();
-    assert!(store.claim_launch(root, "absent", &boot, u32::MAX).unwrap());
+    assert!(
+        store
+            .claim_launch_args(root, "absent", &boot, u32::MAX)
+            .unwrap()
+    );
     store.reconcile().unwrap();
     store
         .complete_work(root, "manual completion", None)
@@ -1545,10 +1560,10 @@ fn dependency_validation_covers_projects_kinds_late_edges_and_limit() {
         .register_project("other", other_project_dir.path())
         .unwrap();
     let other_agent = store
-        .register_agent(other.id, "worker", "manual", "model", "{}", false)
+        .register_agent_args(other.id, "worker", "manual", "model", "{}", false)
         .unwrap();
     let foreign = store
-        .add_work_task(other.id, other_agent.id, "foreign", None)
+        .add_work_task_args(other.id, other_agent.id, "foreign", None)
         .unwrap();
     assert!(
         store
@@ -1559,7 +1574,7 @@ fn dependency_validation_covers_projects_kinds_late_edges_and_limit() {
     );
     let project_id = store.task(root).unwrap().project_id;
     store
-        .register_agent(
+        .register_agent_args(
             project_id,
             "reviewer",
             "manual-reviewer",
@@ -1581,7 +1596,7 @@ fn dependency_validation_covers_projects_kinds_late_edges_and_limit() {
     store.queue(dependent).unwrap();
     assert!(
         store
-            .claim_launch(dependent, "runner", &boot, std::process::id())
+            .claim_launch_args(dependent, "runner", &boot, std::process::id())
             .unwrap()
     );
     assert!(
@@ -1599,22 +1614,22 @@ fn dependency_validation_covers_projects_kinds_late_edges_and_limit() {
         .register_project("limit", limit_project_dir.path())
         .unwrap();
     let agent = limit_store
-        .register_agent(project.id, "worker", "manual", "model", "{}", false)
+        .register_agent_args(project.id, "worker", "manual", "model", "{}", false)
         .unwrap();
     let target = limit_store
-        .add_work_task(project.id, agent.id, "target", None)
+        .add_work_task_args(project.id, agent.id, "target", None)
         .unwrap();
     let mut limit_store = limit_store;
     for index in 0..8 {
         let prerequisite = limit_store
-            .add_work_task(project.id, agent.id, &format!("p{index}"), None)
+            .add_work_task_args(project.id, agent.id, &format!("p{index}"), None)
             .unwrap();
         limit_store
             .add_dependency(prerequisite.id, target.id)
             .unwrap();
     }
     let ninth = limit_store
-        .add_work_task(project.id, agent.id, "ninth", None)
+        .add_work_task_args(project.id, agent.id, "ninth", None)
         .unwrap();
     assert!(
         limit_store
@@ -1633,7 +1648,7 @@ fn completed_never_queued_dependents_reject_dependency_edits() {
     assert!(store.add_dependency(prerequisite, dependent).is_err());
 
     let prerequisite = store
-        .add_work_task(
+        .add_work_task_args(
             task.project_id,
             task.agent_id.unwrap(),
             "another prerequisite",
@@ -1641,7 +1656,7 @@ fn completed_never_queued_dependents_reject_dependency_edits() {
         )
         .unwrap();
     let dependent = store
-        .add_work_task(
+        .add_work_task_args(
             task.project_id,
             task.agent_id.unwrap(),
             "another dependent",
@@ -1676,9 +1691,15 @@ fn graph_edits_recompute_queued_readiness_and_fanout_join() {
 
     let project = store.task(root).unwrap().project_id;
     let agent = store.task(root).unwrap().agent_id.unwrap();
-    let left = store.add_work_task(project, agent, "left", None).unwrap();
-    let right = store.add_work_task(project, agent, "right", None).unwrap();
-    let join = store.add_work_task(project, agent, "join", None).unwrap();
+    let left = store
+        .add_work_task_args(project, agent, "left", None)
+        .unwrap();
+    let right = store
+        .add_work_task_args(project, agent, "right", None)
+        .unwrap();
+    let join = store
+        .add_work_task_args(project, agent, "join", None)
+        .unwrap();
     store.add_dependency(root, left.id).unwrap();
     store.add_dependency(root, right.id).unwrap();
     store.add_dependency(left.id, join.id).unwrap();
@@ -1711,7 +1732,7 @@ fn graph_edits_recompute_queued_readiness_and_fanout_join() {
 fn live_foreground_execution_cannot_be_queued() {
     let (state, _project, mut store, root, _dependent) = graph();
     store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1756,13 +1777,13 @@ fn stale_checkpoint_executor_cannot_finish_a_replacement_attempt() {
     let (state, _project, mut store, root, _dependent) = graph();
     let project = store.task(root).unwrap().project_id;
     store
-        .register_agent(project, "reviewer", "manual", "human", "{}", true)
+        .register_agent_args(project, "reviewer", "manual", "human", "{}", true)
         .unwrap();
     store.complete_work(root, "done", None).unwrap();
     let checkpoint = store.create_checkpoint(root).unwrap();
     let boot = mush::executor::boot_id();
     let first = store
-        .begin_execution(
+        .begin_execution_args(
             checkpoint.id,
             None,
             None,
@@ -1772,7 +1793,7 @@ fn stale_checkpoint_executor_cannot_finish_a_replacement_attempt() {
         .unwrap();
     store.interrupt_execution(checkpoint.id).unwrap();
     store
-        .begin_execution(
+        .begin_execution_args(
             checkpoint.id,
             None,
             None,
@@ -1782,7 +1803,13 @@ fn stale_checkpoint_executor_cannot_finish_a_replacement_attempt() {
         .unwrap();
 
     let error = store
-        .finish_checkpoint_execution(checkpoint.id, first.execution_attempt, "stale")
+        .finish_checkpoint_execution(
+            mush::store::ExecutionOwner {
+                task_id: checkpoint.id,
+                execution_attempt: first.execution_attempt,
+            },
+            "stale",
+        )
         .unwrap_err()
         .to_string();
     assert!(error.contains("ownership changed"), "{error}");
@@ -1793,7 +1820,7 @@ fn stale_executor_cannot_finish_a_replacement_attempt() {
     let (state, _project, mut store, root, _dependent) = graph();
     let boot = mush::executor::boot_id();
     let first = store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1803,7 +1830,7 @@ fn stale_executor_cannot_finish_a_replacement_attempt() {
         .unwrap();
     store.interrupt_execution(root).unwrap();
     let second = store
-        .begin_execution(
+        .begin_execution_args(
             root,
             None,
             None,
@@ -1814,7 +1841,7 @@ fn stale_executor_cannot_finish_a_replacement_attempt() {
     assert!(second.execution_attempt > first.execution_attempt);
 
     let error = store
-        .finish_work_execution(root, first.execution_attempt, "stale", "stale")
+        .finish_work_execution_args(root, first.execution_attempt, "stale", "stale")
         .unwrap_err()
         .to_string();
     assert!(error.contains("ownership changed"), "{error}");
@@ -1847,7 +1874,7 @@ fn observation_enforces_aggregate_text_bound() {
     for index in 0..30 {
         ids.push(
             store
-                .add_work_task(project, agent, &format!("{index}-{huge}"), None)
+                .add_work_task_args(project, agent, &format!("{index}-{huge}"), None)
                 .unwrap()
                 .id,
         );
@@ -1886,7 +1913,7 @@ fn completed_graph_stops_until_a_new_coordinator_extends_it() {
     let project = store.task(root).unwrap().project_id;
     let agent = store.task(root).unwrap().agent_id.unwrap();
     let extension = store
-        .add_work_task(project, agent, "fresh coordinator judgment", None)
+        .add_work_task_args(project, agent, "fresh coordinator judgment", None)
         .unwrap();
     store.add_dependency(dependent, extension.id).unwrap();
     assert_eq!(

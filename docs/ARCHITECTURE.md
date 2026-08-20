@@ -15,12 +15,12 @@ TUI ─┘              │
 ```
 
 - **CLI** provides non-interactive operations for humans, agents, scripts, and external tooling.
-- **TUI** presents task state, review work, evidence, and operational health.
+- **TUI** presents task state, review work, evidence, and operational health. Snapshot derivation, selection and key handling, checkpoint eligibility, task-detail rendering, and frame drawing are separated from terminal setup and event reads so deterministic behavior can be tested without an interactive terminal.
 - **Domain services** own task transitions, relationships, checkpoint decisions, and policy.
 - **Store** persists domain state, dependency readiness, transition cursors, and launch delivery in SQLite.
 - **Task artifacts** hold large, inspectable execution outputs outside SQLite.
 - **Harness adapters** translate domain requests into invocations of existing coding harnesses without deciding product semantics.
-- **Runner** is the execution engine, reached through two front doors: `mush runner start`, the worker one, and `mush task run`, the human one. `runner start` is a short-lived process that claims and executes exactly one task independently of the shell that queued it, and it alone can pick its own task; `task run` names a task and adds the worktree, session, and prompt options. Neither refuses the other's readiness case, because the engine reads the task's durable readiness to decide whether the execution claims a launch delivery. `runner tick` and `runner serve` are bounded and continuous passes that start `runner start` processes. See [ABSTRACTIONS.md](ABSTRACTIONS.md#runner) for the role and [the runner role guide](guides/runner-role.md) for how an operator holds it.
+- **Runner** is the execution engine, reached through two front doors: `mush runner start`, the worker one, and `mush task run`, the human one. `runner start` is a short-lived process that claims and executes exactly one task independently of the shell that queued it, and it alone can pick its own task; `task run` names a task and adds the worktree, session, and prompt options. Neither refuses the other's readiness case, because the engine reads the task's durable readiness to decide whether the execution claims a launch delivery. `runner tick` and `runner serve` are bounded and continuous passes that start `runner start` processes. Capacity calculation and child-exit classification are pure seams; process spawning, reaping, and store mutations remain at the boundary. See [ABSTRACTIONS.md](ABSTRACTIONS.md#runner) for the role and [the runner role guide](guides/runner-role.md) for how an operator holds it.
 - **Project adapters** do not exist yet; they will integrate registered repositories, worktree behavior, verification commands, native documentation, and private overlays.
 
 Interface code depends on domain services rather than directly implementing task transitions. Harness and project adapters execute boundary-specific operations but do not decide whether work is accepted.
@@ -33,18 +33,33 @@ The small implementation lives in modules matching these ownership boundaries:
 
 ```text
 src/
-├── main.rs        CLI entry point
-├── tui.rs         interactive TUI and deterministic snapshot rendering
-├── domain.rs      domain types and errors
-├── executor.rs    shared execution lifecycle and per-harness adapters (Claude Code, Codex, Cursor)
-├── runner.rs      the runner surface: start, tick, serve, and status
-├── lock.rs        exclusive advisory locks for executions and for serve
-├── store.rs       domain operations and SQLite persistence
-└── lib.rs         library surface and state-path resolution
+├── main.rs          CLI entry point
+├── tui.rs           interactive TUI and deterministic snapshot rendering
+├── domain.rs        domain types and errors
+├── executor.rs      shared execution lifecycle
+├── executor/
+│   └── harness.rs   per-harness argument, version, session, and result translation
+├── runner.rs        the runner surface: start, tick, serve, and status
+├── lock.rs          exclusive advisory locks for executions and for serve
+├── store.rs         Store facade and shared persistence surface
+├── store/
+│   ├── schema.rs      database opening, backup, and versioned migration
+│   ├── tasks.rs       project, agent, task, and checkpoint operations
+│   ├── execution.rs   attempt ownership, sessions, and completion
+│   ├── graph.rs       dependency mutation and validation
+│   ├── delivery.rs    launch claims and runner counts
+│   ├── recovery.rs    recovery, reconciliation, and intervention
+│   ├── observation.rs bounded deterministic observation
+│   ├── query.rs       shared row decoding
+│   └── workflow.rs    transition, readiness, and launch-invariant helpers
+└── lib.rs           library surface and state-path resolution
 tests/
 ├── common/
+├── unit/            focused unit targets for production-only coverage measurement
 ├── manual_control_loop.rs
-└── m4_dependency_chain.rs
+├── m4_dependency_chain.rs
+├── quality_coverage.rs
+└── store_quality_invariants.rs
 docs/
 ├── ARCHITECTURE.md
 ├── ABSTRACTIONS.md
@@ -55,7 +70,9 @@ docs/
 └── guides/
 ```
 
-The implementation may grow into directories when later work needs more than these modules. A project adapter directory remains absent until that work begins.
+The executor and store directories keep boundary-specific responsibilities visible while their root modules remain the stable facades. A project adapter directory remains absent until that work begins.
+
+Store mutations that carry several related values use named request and ownership types such as `AgentRegistration`, `WorkTaskRequest`, `LaunchClaim`, `ExecutionStart`, `WorkExecutionResult`, and `ExecutionOwner`. This replaced the earlier positional Rust method signatures during pre-alpha stabilization; it is a source-level library API break, while the CLI and runtime behavior remain unchanged.
 
 ## State management
 

@@ -35,7 +35,7 @@ The user surface includes the headless `mush` CLI and the explicitly launched `m
 
 ## Verification
 
-Correctness and quality standards live in [docs/VERIFICATION.md](docs/VERIFICATION.md). Formatting, compilation, linting, tests, rustdoc, and repository policy are executable. Coverage, CodeScene quality, dependency policy, and the comprehensive merge gate remain inactive. Never describe a missing tool or unimplemented check as passing.
+Correctness and quality standards live in [docs/VERIFICATION.md](docs/VERIFICATION.md). Formatting, compilation, linting, tests, rustdoc, repository policy, coverage, CodeScene quality, dependency policy, and the comprehensive merge gate are executable. Required tools and credentials fail closed; never describe a failed, missing, unavailable, or unmeasured check as passing.
 
 ## Documentation ownership
 

@@ -16,12 +16,14 @@
 //! the role is held.
 
 use crate::{
-    DomainError, Executor, ReadinessStatus, RunnerReport, Store, executor::RunOptions, lock,
+    DomainError, Executor, ReadinessStatus, RunnerReport, Store,
+    executor::{LockedRun, RunOptions},
+    lock,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     time::Duration,
 };
 
@@ -153,16 +155,27 @@ fn execute(
         None
     } else {
         let runner_id = format!("{pid}-{}", uuid::Uuid::new_v4());
-        if !store.claim_launch(id, &runner_id, &boot_id, pid)? {
+        if !store.claim_launch(crate::store::LaunchClaim {
+            task_id: id,
+            runner_id: &runner_id,
+            runner_boot_id: &boot_id,
+            runner_pid: pid,
+        })? {
             return Ok(Started::Nothing(format!(
                 "task {id} is not ready to start; run `mush runner tick` to reconcile it, or `mush task recover {id}`"
             )));
         }
         Some(runner_id)
     };
-    if let Err(error) =
-        Executor::new(database).run_locked(store, id, options, runner_id.as_deref(), &lock)
-    {
+    if let Err(error) = Executor::new(database).run_locked(
+        store,
+        LockedRun {
+            task_id: id,
+            options,
+            runner_id: runner_id.as_deref(),
+            execution_lock: &lock,
+        },
+    ) {
         // Parking belongs to the delivery this execution claimed. An unqueued
         // task has none, and the executor has already recorded its interruption.
         if runner_id.is_some() {
@@ -221,21 +234,42 @@ pub fn serve(store: &mut Store) -> Result<(), DomainError> {
     };
     let mut children: BTreeMap<i64, Child> = BTreeMap::new();
     loop {
-        reap(store, &mut children)?;
-        if let Err(error) = store.reconcile() {
-            eprintln!("warning: cannot reconcile abandoned executions: {error}");
-        }
-        let supervised: BTreeSet<i64> = children.keys().copied().collect();
-        for id in eligible(store, &supervised)? {
-            match spawn_start(&database, id, Detached::No) {
-                Ok(child) => {
-                    children.insert(id, child);
-                }
-                Err(error) => park_unstartable(store, id, &error)?,
-            }
-        }
+        serve_pass(store, &database, &mut children)?;
         std::thread::sleep(SERVE_PASS_INTERVAL);
     }
+}
+
+/// Reap, reconcile, and refill one serve pass. The caller owns cadence and the
+/// serve lock; this pass owns the bounded unit of runner work.
+fn serve_pass(
+    store: &mut Store,
+    database: &Path,
+    children: &mut BTreeMap<i64, Child>,
+) -> Result<(), DomainError> {
+    reap(store, children)?;
+    if let Err(error) = store.reconcile() {
+        eprintln!("warning: cannot reconcile abandoned executions: {error}");
+    }
+    spawn_eligible(store, database, children)
+}
+
+/// Fill the capacity left after counting this serve's children and every live
+/// execution observed through its task lock.
+fn spawn_eligible(
+    store: &mut Store,
+    database: &Path,
+    children: &mut BTreeMap<i64, Child>,
+) -> Result<(), DomainError> {
+    let supervised = children.keys().copied().collect();
+    for id in eligible(store, &supervised)? {
+        match spawn_start(database, id, Detached::No) {
+            Ok(child) => {
+                children.insert(id, child);
+            }
+            Err(error) => park_unstartable(store, id, &error)?,
+        }
+    }
+    Ok(())
 }
 
 /// Report what is queued, owned, and parked, and whether anything holds the
@@ -276,13 +310,7 @@ pub fn status(store: &Store) -> Result<RunnerReport, DomainError> {
 /// child and that child claiming its delivery, the task is still a pending
 /// launch, and starting it again would be this process racing itself.
 fn eligible(store: &Store, supervised: &BTreeSet<i64>) -> Result<Vec<i64>, DomainError> {
-    let in_flight = supervised.len()
-        + store
-            .live_executions()?
-            .into_iter()
-            .filter(|id| !supervised.contains(id))
-            .count();
-    let available = CONCURRENCY_BOUND.saturating_sub(in_flight);
+    let available = available_capacity(supervised, &store.live_executions()?);
     if available == 0 {
         return Ok(Vec::new());
     }
@@ -292,6 +320,13 @@ fn eligible(store: &Store, supervised: &BTreeSet<i64>) -> Result<Vec<i64>, Domai
     candidates.retain(|id| !supervised.contains(id));
     candidates.truncate(available);
     Ok(candidates)
+}
+
+/// Capacity left for an automatic pass after unioning the children it owns
+/// with executions observed through their locks.
+fn available_capacity(supervised: &BTreeSet<i64>, live: &[i64]) -> usize {
+    let externally_live = live.iter().filter(|id| !supervised.contains(id)).count();
+    CONCURRENCY_BOUND.saturating_sub(supervised.len() + externally_live)
 }
 
 enum Detached {
@@ -346,15 +381,9 @@ fn reap(store: &mut Store, children: &mut BTreeMap<i64, Child>) -> Result<(), Do
     }
     for (id, status) in finished {
         children.remove(&id);
-        if status.success() {
-            continue;
-        }
-        // A child that started no execution — because a concurrent starter got
-        // the task first, or because the delivery was no longer claimable —
-        // reports its own outcome, not the task's, and says so in its exit
-        // code. Nothing is inferred from the task's lock after the fact.
-        if status.code() == Some(EXIT_DID_NOT_START) {
-            continue;
+        match classify_child_status(status) {
+            ChildOutcome::Executed | ChildOutcome::DidNotStart => continue,
+            ChildOutcome::Failed => {}
         }
         store.require_intervention(
             id,
@@ -364,4 +393,28 @@ fn reap(store: &mut Store, children: &mut BTreeMap<i64, Child>) -> Result<(), Do
         )?;
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ChildOutcome {
+    Executed,
+    DidNotStart,
+    Failed,
+}
+
+/// Interpret the child process's public exit-code contract without consulting
+/// mutable task state after the child has exited.
+fn classify_child_status(status: ExitStatus) -> ChildOutcome {
+    if status.success() {
+        ChildOutcome::Executed
+    } else if status.code() == Some(EXIT_DID_NOT_START) {
+        ChildOutcome::DidNotStart
+    } else {
+        ChildOutcome::Failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    include!("../tests/unit/runner.rs");
 }

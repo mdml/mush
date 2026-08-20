@@ -1,0 +1,9 @@
+# Every cargo-deny advisory ignore must be registered here and must expire.
+#
+# [[exception]]
+# id = "RUSTSEC-YYYY-NNNN"
+# tool = "cargo-deny"
+# rationale = "Why the risk is acceptable temporarily."
+# owner = "maintainer"
+# expires = 2026-09-30
+# record = "docs/decisions/YYYY-MM-DD-short-title.md"

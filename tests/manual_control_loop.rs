@@ -2,6 +2,7 @@ use mush::{CheckpointDecision, ExecutionStatus, Executor, Store, TaskKind, TaskS
 use serde_json::Value;
 use std::process::Command;
 mod common;
+use common::StoreTestExt;
 #[cfg(unix)]
 use common::{claude_settings, fake_claude, git_project, install_script};
 
@@ -18,7 +19,7 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "claude-code",
@@ -28,7 +29,7 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "claude-code",
@@ -38,10 +39,18 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
         )
         .unwrap();
     let work = store
-        .add_work_task(project.id, worker.id, "Implement real work", None)
+        .add_work_task_args(project.id, worker.id, "Implement real work", None)
         .unwrap();
     let completed = Executor::new(&database)
-        .run(&mut store, work.id, Some("mush-task-test"), false, None)
+        .run(
+            &mut store,
+            work.id,
+            &mush::executor::RunOptions {
+                worktree: Some("mush-task-test"),
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.kind, TaskKind::Work);
     assert_eq!(completed.status, TaskStatus::Completed);
@@ -50,7 +59,15 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
     assert_eq!(checkpoint.kind, TaskKind::Checkpoint);
     assert_eq!(checkpoint.subject_task_id, Some(work.id));
     let reviewed = Executor::new(&database)
-        .run(&mut store, checkpoint.id, None, false, None)
+        .run(
+            &mut store,
+            checkpoint.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(reviewed.status, TaskStatus::Pending);
     assert_eq!(reviewed.execution_status, Some(ExecutionStatus::Succeeded));
@@ -65,9 +82,11 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
         .run(
             &mut store,
             checkpoint.id,
-            None,
-            false,
-            Some("Here is the requested PR body"),
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: Some("Here is the requested PR body"),
+            },
         )
         .unwrap();
     assert_eq!(continued.execution_attempt, 2);
@@ -96,7 +115,7 @@ fn interrupted_execution_resumes_same_session_after_restart() {
             .register_project("project", project_dir.path())
             .unwrap();
         let worker = store
-            .register_agent(
+            .register_agent_args(
                 project.id,
                 "worker",
                 "claude-code",
@@ -106,7 +125,7 @@ fn interrupted_execution_resumes_same_session_after_restart() {
             )
             .unwrap();
         store
-            .register_agent(
+            .register_agent_args(
                 project.id,
                 "reviewer",
                 "claude-code",
@@ -116,12 +135,20 @@ fn interrupted_execution_resumes_same_session_after_restart() {
             )
             .unwrap();
         let work = store
-            .add_work_task(project.id, worker.id, "Work", None)
+            .add_work_task_args(project.id, worker.id, "Work", None)
             .unwrap();
         work_id = work.id;
         assert!(
             Executor::new(&database)
-                .run(&mut store, work.id, Some("resume-test"), false, None)
+                .run(
+                    &mut store,
+                    work.id,
+                    &mush::executor::RunOptions {
+                        worktree: Some("resume-test"),
+                        restart_session: false,
+                        prompt_override: None
+                    }
+                )
                 .is_err()
         );
         let interrupted = store.task(work.id).unwrap();
@@ -135,7 +162,15 @@ fn interrupted_execution_resumes_same_session_after_restart() {
     fake_claude(&executable, true);
     let mut restarted = Store::open(&database).unwrap();
     let completed = Executor::new(&database)
-        .run(&mut restarted, work_id, None, false, None)
+        .run(
+            &mut restarted,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.session_id.as_deref(), Some(session_id.as_str()));
     assert_eq!(completed.execution_attempt, 2);
@@ -188,7 +223,7 @@ fn cursor_fixture(
     let store = Store::open(&database).unwrap();
     let project = store.register_project("project", project_dir).unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "cursor",
@@ -198,7 +233,7 @@ fn cursor_fixture(
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "cursor",
@@ -208,7 +243,7 @@ fn cursor_fixture(
         )
         .unwrap();
     let work = store
-        .add_work_task(project.id, worker.id, "Implement cursor work", None)
+        .add_work_task_args(project.id, worker.id, "Implement cursor work", None)
         .unwrap();
     (store, executable, work.id)
 }
@@ -238,7 +273,15 @@ fn cursor_executor_captures_session_owns_worktree_and_reviews_independently() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _executable, work_id) = cursor_fixture(state.path(), project_dir.path());
     let completed = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.kind, TaskKind::Work);
     assert_eq!(completed.status, TaskStatus::Completed);
@@ -257,7 +300,15 @@ fn cursor_executor_captures_session_owns_worktree_and_reviews_independently() {
     assert!(!first.contains(&"--resume".to_owned()));
     assert!(!first.contains(&"--worktree".to_owned()));
     let reviewed = Executor::new(&database)
-        .run(&mut store, checkpoint.id, None, false, None)
+        .run(
+            &mut store,
+            checkpoint.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(reviewed.status, TaskStatus::Pending);
     assert_eq!(reviewed.session_id.as_deref(), Some("chat-1234"));
@@ -265,7 +316,15 @@ fn cursor_executor_captures_session_owns_worktree_and_reviews_independently() {
     assert!(evidence.contains("## Cursor Agent execution"));
     assert!(evidence.contains("fake cursor result"));
     let continued = Executor::new(&database)
-        .run(&mut store, checkpoint.id, None, false, Some("Follow up"))
+        .run(
+            &mut store,
+            checkpoint.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: Some("Follow up"),
+            },
+        )
         .unwrap();
     assert_eq!(continued.execution_attempt, 2);
     let resumed = launch_arguments(state.path(), checkpoint.id, 2);
@@ -300,7 +359,7 @@ fn cursor_large_prompt_does_not_deadlock_against_early_stream_output() {
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "cursor",
@@ -310,7 +369,7 @@ fn cursor_large_prompt_does_not_deadlock_against_early_stream_output() {
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "cursor",
@@ -320,14 +379,22 @@ fn cursor_large_prompt_does_not_deadlock_against_early_stream_output() {
         )
         .unwrap();
     let work = store
-        .add_work_task(project.id, worker.id, &"x".repeat(200_000), None)
+        .add_work_task_args(project.id, worker.id, &"x".repeat(200_000), None)
         .unwrap();
     let work_id = work.id;
     drop(store);
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut store = Store::open(&database).unwrap();
-        let outcome = Executor::new(&database).run(&mut store, work_id, None, false, None);
+        let outcome = Executor::new(&database).run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        );
         sender.send(outcome.map(|task| task.kind)).unwrap();
     });
     let outcome = receiver
@@ -345,7 +412,15 @@ fn cursor_error_result_interrupts_then_resumes_the_captured_chat() {
     let (mut store, executable, work_id) = cursor_fixture(state.path(), project_dir.path());
     fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_ERROR_RESULT);
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("error result"));
     let interrupted = store.task(work_id).unwrap();
@@ -356,7 +431,15 @@ fn cursor_error_result_interrupts_then_resumes_the_captured_chat() {
     assert_eq!(interrupted.session_id.as_deref(), Some("chat-1234"));
     fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_SUCCESS);
     let completed = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.status, TaskStatus::Completed);
     assert_eq!(completed.execution_attempt, 2);
@@ -375,7 +458,15 @@ fn cursor_missing_result_event_fails_and_interrupts() {
     let (mut store, executable, work_id) = cursor_fixture(state.path(), project_dir.path());
     fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_NO_RESULT);
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("no result event"));
     assert_eq!(
@@ -393,7 +484,15 @@ fn cursor_version_mismatch_refuses_to_launch() {
     let (mut store, executable, work_id) = cursor_fixture(state.path(), project_dir.path());
     fake_cursor(&executable, "2026.09.01-0000000", CURSOR_SUCCESS);
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("Cursor Agent version mismatch"));
     assert_eq!(store.task(work_id).unwrap().execution_status, None);
@@ -460,7 +559,7 @@ fn codex_fixture(
     let store = Store::open(&database).unwrap();
     let project = store.register_project("project", project_dir).unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "codex",
@@ -470,7 +569,7 @@ fn codex_fixture(
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "codex",
@@ -480,7 +579,7 @@ fn codex_fixture(
         )
         .unwrap();
     let work = store
-        .add_work_task(project.id, worker.id, "Implement codex work", None)
+        .add_work_task_args(project.id, worker.id, "Implement codex work", None)
         .unwrap();
     (store, executable, work.id)
 }
@@ -493,7 +592,15 @@ fn codex_executor_captures_thread_owns_worktree_and_reviews_independently() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _executable, work_id) = codex_fixture(state.path(), project_dir.path());
     let completed = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.status, TaskStatus::Completed);
     assert_eq!(completed.execution_status, Some(ExecutionStatus::Succeeded));
@@ -519,14 +626,30 @@ fn codex_executor_captures_thread_owns_worktree_and_reviews_independently() {
     assert_eq!(first.last().map(String::as_str), Some("-"));
     let checkpoint = store.create_checkpoint(work_id).unwrap();
     let reviewed = Executor::new(&database)
-        .run(&mut store, checkpoint.id, None, false, None)
+        .run(
+            &mut store,
+            checkpoint.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(reviewed.status, TaskStatus::Pending);
     let evidence = reviewed.evidence.unwrap();
     assert!(evidence.contains("## Codex execution"));
     assert!(evidence.contains("fake codex result"));
     let continued = Executor::new(&database)
-        .run(&mut store, checkpoint.id, None, false, Some("Follow up"))
+        .run(
+            &mut store,
+            checkpoint.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: Some("Follow up"),
+            },
+        )
         .unwrap();
     assert_eq!(continued.execution_attempt, 2);
     let resumed = launch_arguments(state.path(), checkpoint.id, 2);
@@ -544,7 +667,15 @@ fn codex_launch_disables_native_subagents_unless_opted_in() {
     let database = state.path().join("mush.sqlite");
     let (mut store, executable, work_id) = codex_fixture(state.path(), project_dir.path());
     Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     let default = launch_arguments(state.path(), work_id, 1);
     assert!(default.contains(&"--disable".to_owned()));
@@ -554,7 +685,7 @@ fn codex_launch_disables_native_subagents_unless_opted_in() {
     opted["native_subagents"] = serde_json::Value::Bool(true);
     let project_id = store.task(work_id).unwrap().project_id;
     let opted_agent = store
-        .register_agent(
+        .register_agent_args(
             project_id,
             "worker-with-subagents",
             "codex",
@@ -564,10 +695,18 @@ fn codex_launch_disables_native_subagents_unless_opted_in() {
         )
         .unwrap();
     let opted_work = store
-        .add_work_task(project_id, opted_agent.id, "Delegating work", None)
+        .add_work_task_args(project_id, opted_agent.id, "Delegating work", None)
         .unwrap();
     Executor::new(&database)
-        .run(&mut store, opted_work.id, None, false, None)
+        .run(
+            &mut store,
+            opted_work.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert!(!launch_arguments(state.path(), opted_work.id, 1).contains(&"multi_agent".to_owned()));
 }
@@ -581,7 +720,15 @@ fn codex_turn_failure_interrupts_the_task() {
     let (mut store, executable, work_id) = codex_fixture(state.path(), project_dir.path());
     fake_codex(&executable, "0.146.1", CODEX_TURN_FAILED);
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(
         error
@@ -615,7 +762,7 @@ fn unpinned_agent_survives_a_harness_upgrade_and_records_the_observed_version() 
     unpinned.as_object_mut().unwrap().remove("version");
     let project_id = store.task(1).unwrap().project_id;
     let agent = store
-        .register_agent(
+        .register_agent_args(
             project_id,
             "unpinned-worker",
             "codex",
@@ -625,10 +772,18 @@ fn unpinned_agent_survives_a_harness_upgrade_and_records_the_observed_version() 
         )
         .unwrap();
     let before = store
-        .add_work_task(project_id, agent.id, "Work before the upgrade", None)
+        .add_work_task_args(project_id, agent.id, "Work before the upgrade", None)
         .unwrap();
     let completed = Executor::new(&database)
-        .run(&mut store, before.id, None, false, None)
+        .run(
+            &mut store,
+            before.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.execution_status, Some(ExecutionStatus::Succeeded));
     assert!(
@@ -639,10 +794,18 @@ fn unpinned_agent_survives_a_harness_upgrade_and_records_the_observed_version() 
     );
     fake_codex(&executable, "0.147.0", CODEX_SUCCESS);
     let after = store
-        .add_work_task(project_id, agent.id, "Work after the upgrade", None)
+        .add_work_task_args(project_id, agent.id, "Work after the upgrade", None)
         .unwrap();
     let upgraded = Executor::new(&database)
-        .run(&mut store, after.id, None, false, None)
+        .run(
+            &mut store,
+            after.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(upgraded.execution_status, Some(ExecutionStatus::Succeeded));
     assert!(
@@ -680,7 +843,15 @@ fn unpinned_agent_still_refuses_an_executable_that_cannot_report_a_version() {
         .unwrap();
     install_script(&executable, "#!/usr/bin/env bash\nexit 3\n");
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("cannot inspect Codex version"));
     assert_eq!(store.task(work_id).unwrap().execution_status, None);
@@ -695,7 +866,15 @@ fn codex_version_mismatch_refuses_to_launch() {
     let (mut store, executable, work_id) = codex_fixture(state.path(), project_dir.path());
     fake_codex(&executable, "0.147.0", CODEX_SUCCESS);
     let error = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("Codex version mismatch"));
     assert_eq!(store.task(work_id).unwrap().execution_status, None);
@@ -711,7 +890,7 @@ fn executable_checkpoint_agent_requires_a_review_prompt_on_every_harness() {
         .register_project("project", project_dir.path())
         .unwrap();
     let error = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "codex",
@@ -733,13 +912,21 @@ fn unknown_harness_is_rejected_by_the_executor() {
         .register_project("project", project_dir.path())
         .unwrap();
     let agent = store
-        .register_agent(project.id, "manual", "manual", "human", "{}", false)
+        .register_agent_args(project.id, "manual", "manual", "human", "{}", false)
         .unwrap();
     let work = store
-        .add_work_task(project.id, agent.id, "Work", None)
+        .add_work_task_args(project.id, agent.id, "Work", None)
         .unwrap();
     let error = Executor::new(&database)
-        .run(&mut store, work.id, None, false, None)
+        .run(
+            &mut store,
+            work.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(error.to_string().contains("unsupported harness: manual"));
 }
@@ -917,7 +1104,7 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
         let mut store = Store::open(&database).unwrap();
         let project = store.register_project("mush", project_dir.path()).unwrap();
         let agent = store
-            .register_agent(
+            .register_agent_args(
                 project.id,
                 "manual",
                 "manual",
@@ -927,7 +1114,7 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
             )
             .unwrap();
         let work = store
-            .add_work_task(project.id, agent.id, "Implement the first slice", None)
+            .add_work_task_args(project.id, agent.id, "Implement the first slice", None)
             .unwrap();
         work_id = work.id;
 
@@ -1001,10 +1188,10 @@ fn checkpoint_accept_and_block_do_not_create_follow_up_work() {
             .register_project("project", project_dir.path())
             .unwrap();
         let agent = store
-            .register_agent(project.id, "reviewer", "manual", "human", "{}", true)
+            .register_agent_args(project.id, "reviewer", "manual", "human", "{}", true)
             .unwrap();
         let work = store
-            .add_work_task(project.id, agent.id, "Work", None)
+            .add_work_task_args(project.id, agent.id, "Work", None)
             .unwrap();
         store.complete_work(work.id, "Done", None).unwrap();
         let checkpoint = store.create_checkpoint(work.id).unwrap();
@@ -1028,10 +1215,10 @@ fn unstarted_revision_can_receive_checkpoint_delta_and_reuse_worktree() {
         .register_project("project", project_dir.path())
         .unwrap();
     let agent = store
-        .register_agent(project.id, "reviewer", "manual", "human", "{}", true)
+        .register_agent_args(project.id, "reviewer", "manual", "human", "{}", true)
         .unwrap();
     let work = store
-        .add_work_task(project.id, agent.id, "Original", None)
+        .add_work_task_args(project.id, agent.id, "Original", None)
         .unwrap();
     store.complete_work(work.id, "Done", None).unwrap();
     let checkpoint = store.create_checkpoint(work.id).unwrap();
@@ -1061,10 +1248,10 @@ fn delegation_fixture(database: &std::path::Path) -> (Store, tempfile::TempDir, 
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(project.id, "worker", "manual", "human", "{}", false)
+        .register_agent_args(project.id, "worker", "manual", "human", "{}", false)
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "manual",
@@ -1082,15 +1269,15 @@ fn delegation_is_fenced_to_one_level_of_work_tasks_in_the_domain() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let coordinator = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     let subtask = store
-        .add_work_task(project_id, worker_id, "Delegated", Some(coordinator.id))
+        .add_work_task_args(project_id, worker_id, "Delegated", Some(coordinator.id))
         .unwrap();
     assert_eq!(subtask.parent_task_id, Some(coordinator.id));
 
     let too_deep = store
-        .add_work_task(project_id, worker_id, "Too deep", Some(subtask.id))
+        .add_work_task_args(project_id, worker_id, "Too deep", Some(subtask.id))
         .unwrap_err();
     assert!(too_deep.to_string().contains(&format!(
         "task {} already has a parent; delegation is bounded to one level",
@@ -1099,7 +1286,7 @@ fn delegation_is_fenced_to_one_level_of_work_tasks_in_the_domain() {
 
     // A subtask naming its own parent creates a sibling; depth still holds.
     let sibling = store
-        .add_work_task(project_id, worker_id, "Sibling", Some(coordinator.id))
+        .add_work_task_args(project_id, worker_id, "Sibling", Some(coordinator.id))
         .unwrap();
     assert_eq!(sibling.parent_task_id, Some(coordinator.id));
 
@@ -1108,7 +1295,7 @@ fn delegation_is_fenced_to_one_level_of_work_tasks_in_the_domain() {
     store.complete_work(coordinator.id, "Done", None).unwrap();
     let checkpoint = store.create_checkpoint(coordinator.id).unwrap();
     let checkpoint_parent = store
-        .add_work_task(project_id, worker_id, "Reviewer work", Some(checkpoint.id))
+        .add_work_task_args(project_id, worker_id, "Reviewer work", Some(checkpoint.id))
         .unwrap_err();
     assert!(checkpoint_parent.to_string().contains("is a checkpoint"));
 }
@@ -1119,10 +1306,10 @@ fn delegation_fence_is_guaranteed_in_the_schema() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let coordinator = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     let subtask = store
-        .add_work_task(project_id, worker_id, "Delegated", Some(coordinator.id))
+        .add_work_task_args(project_id, worker_id, "Delegated", Some(coordinator.id))
         .unwrap();
 
     // Bypass the domain layer entirely; the schema trigger must still hold.
@@ -1176,10 +1363,10 @@ fn revision_of_a_subtask_inherits_the_parent_and_carries_feedback() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let coordinator = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     let subtask = store
-        .add_work_task(project_id, worker_id, "Delegated", Some(coordinator.id))
+        .add_work_task_args(project_id, worker_id, "Delegated", Some(coordinator.id))
         .unwrap();
     store.complete_work(subtask.id, "Done", None).unwrap();
     let checkpoint = store.create_checkpoint(subtask.id).unwrap();
@@ -1213,7 +1400,7 @@ fn completing_work_no_longer_creates_a_checkpoint_until_asked() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let work = store
-        .add_work_task(project_id, worker_id, "Work", None)
+        .add_work_task_args(project_id, worker_id, "Work", None)
         .unwrap();
     store.complete_work(work.id, "Done", None).unwrap();
     assert_eq!(store.tasks(None).unwrap().len(), 1);
@@ -1248,7 +1435,7 @@ fn delegated_task_runs_with_its_own_identity_in_the_environment() {
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "claude-code",
@@ -1258,7 +1445,7 @@ fn delegated_task_runs_with_its_own_identity_in_the_environment() {
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "claude-code",
@@ -1268,13 +1455,21 @@ fn delegated_task_runs_with_its_own_identity_in_the_environment() {
         )
         .unwrap();
     let coordinator = store
-        .add_work_task(project.id, worker.id, "Coordinate", None)
+        .add_work_task_args(project.id, worker.id, "Coordinate", None)
         .unwrap();
     let subtask = store
-        .add_work_task(project.id, worker.id, "Delegated", Some(coordinator.id))
+        .add_work_task_args(project.id, worker.id, "Delegated", Some(coordinator.id))
         .unwrap();
     let completed = Executor::new(&database)
-        .run(&mut store, subtask.id, None, false, None)
+        .run(
+            &mut store,
+            subtask.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.parent_task_id, Some(coordinator.id));
     assert_eq!(
@@ -1289,7 +1484,7 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let work = store
-        .add_work_task(project_id, worker_id, "Work", None)
+        .add_work_task_args(project_id, worker_id, "Work", None)
         .unwrap();
 
     let awaiting = store.create_checkpoint(work.id).unwrap();
@@ -1311,7 +1506,15 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
         awaiting.id, work.id
     )));
     let premature_run = Executor::new(&database)
-        .run(&mut store, awaiting.id, None, false, None)
+        .run(
+            &mut store,
+            awaiting.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(
         premature_run
@@ -1361,7 +1564,7 @@ fn checkpoint_awaiting_its_subject_runs_after_completion_with_synced_evidence() 
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "claude-code",
@@ -1371,7 +1574,7 @@ fn checkpoint_awaiting_its_subject_runs_after_completion_with_synced_evidence() 
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "claude-code",
@@ -1381,21 +1584,45 @@ fn checkpoint_awaiting_its_subject_runs_after_completion_with_synced_evidence() 
         )
         .unwrap();
     let work = store
-        .add_work_task(project.id, worker.id, "Work", None)
+        .add_work_task_args(project.id, worker.id, "Work", None)
         .unwrap();
     let awaiting = store.create_checkpoint(work.id).unwrap();
     assert!(
         Executor::new(&database)
-            .run(&mut store, awaiting.id, None, false, None)
+            .run(
+                &mut store,
+                awaiting.id,
+                &mush::executor::RunOptions {
+                    worktree: None,
+                    restart_session: false,
+                    prompt_override: None
+                }
+            )
             .unwrap_err()
             .to_string()
             .contains("is awaiting its subject")
     );
     Executor::new(&database)
-        .run(&mut store, work.id, None, false, None)
+        .run(
+            &mut store,
+            work.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     let reviewed = Executor::new(&database)
-        .run(&mut store, awaiting.id, None, false, None)
+        .run(
+            &mut store,
+            awaiting.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(reviewed.execution_status, Some(ExecutionStatus::Succeeded));
     assert!(
@@ -1420,7 +1647,7 @@ fn claude_launch_disallows_native_subagents_unless_opted_in() {
         .register_project("project", project_dir.path())
         .unwrap();
     let fenced = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "fenced",
             "claude-code",
@@ -1433,7 +1660,7 @@ fn claude_launch_disallows_native_subagents_unless_opted_in() {
         serde_json::from_str(&claude_settings(&executable, None)).unwrap();
     opted_settings["native_subagents"] = Value::Bool(true);
     let opted = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "opted",
             "claude-code",
@@ -1443,7 +1670,7 @@ fn claude_launch_disallows_native_subagents_unless_opted_in() {
         )
         .unwrap();
     store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "claude-code",
@@ -1454,10 +1681,18 @@ fn claude_launch_disallows_native_subagents_unless_opted_in() {
         .unwrap();
 
     let fenced_work = store
-        .add_work_task(project.id, fenced.id, "Fenced", None)
+        .add_work_task_args(project.id, fenced.id, "Fenced", None)
         .unwrap();
     Executor::new(&database)
-        .run(&mut store, fenced_work.id, None, false, None)
+        .run(
+            &mut store,
+            fenced_work.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     let fenced_arguments = launch_arguments(state.path(), fenced_work.id, 1);
     let disallow = fenced_arguments
@@ -1467,10 +1702,18 @@ fn claude_launch_disallows_native_subagents_unless_opted_in() {
     assert_eq!(fenced_arguments[disallow + 1], "Task");
 
     let opted_work = store
-        .add_work_task(project.id, opted.id, "Opted", None)
+        .add_work_task_args(project.id, opted.id, "Opted", None)
         .unwrap();
     Executor::new(&database)
-        .run(&mut store, opted_work.id, None, false, None)
+        .run(
+            &mut store,
+            opted_work.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     let opted_arguments = launch_arguments(state.path(), opted_work.id, 1);
     assert!(!opted_arguments.contains(&"--disallowedTools".to_owned()));
@@ -1505,10 +1748,10 @@ fn parent_completion_waits_for_direct_children_in_the_domain() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let parent = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     let child = store
-        .add_work_task(project_id, worker_id, "Delegated", Some(parent.id))
+        .add_work_task_args(project_id, worker_id, "Delegated", Some(parent.id))
         .unwrap();
 
     let pending = store.complete_work(parent.id, "Done", None).unwrap_err();
@@ -1519,7 +1762,7 @@ fn parent_completion_waits_for_direct_children_in_the_domain() {
     );
 
     store
-        .begin_execution(child.id, None, None, state.path(), "boot")
+        .begin_execution_args(child.id, None, None, state.path(), "boot")
         .unwrap();
     let running = store.complete_work(parent.id, "Done", None).unwrap_err();
     assert!(running.to_string().contains(&child.id.to_string()));
@@ -1538,11 +1781,11 @@ fn a_completed_parent_cannot_gain_children_in_the_domain() {
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let parent = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     store.complete_work(parent.id, "Done", None).unwrap();
     let error = store
-        .add_work_task(project_id, worker_id, "Late child", Some(parent.id))
+        .add_work_task_args(project_id, worker_id, "Late child", Some(parent.id))
         .unwrap_err();
     assert!(
         error
@@ -1557,10 +1800,10 @@ fn parent_completion_invariant_is_guaranteed_in_the_schema() {
     let database = state.path().join("mush.sqlite");
     let (store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
     let parent = store
-        .add_work_task(project_id, worker_id, "Coordinate", None)
+        .add_work_task_args(project_id, worker_id, "Coordinate", None)
         .unwrap();
     let child = store
-        .add_work_task(project_id, worker_id, "Delegated", Some(parent.id))
+        .add_work_task_args(project_id, worker_id, "Delegated", Some(parent.id))
         .unwrap();
     drop(store);
 
@@ -1624,7 +1867,7 @@ fn concurrent_child_creation_and_parent_completion_cannot_both_commit() {
         let database = state.path().join("mush.sqlite");
         let (store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
         let parent = store
-            .add_work_task(project_id, worker_id, "Coordinate", None)
+            .add_work_task_args(project_id, worker_id, "Coordinate", None)
             .unwrap();
         drop(store);
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
@@ -1642,7 +1885,7 @@ fn concurrent_child_creation_and_parent_completion_cannot_both_commit() {
                 let store = Store::open(&database).unwrap();
                 barrier.wait();
                 store
-                    .add_work_task(project_id, worker_id, "Delegated", Some(parent.id))
+                    .add_work_task_args(project_id, worker_id, "Delegated", Some(parent.id))
                     .is_ok()
             })
         };
@@ -1680,7 +1923,7 @@ fn successful_parent_harness_result_is_refused_while_a_child_runs() {
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "claude-code",
@@ -1690,18 +1933,26 @@ fn successful_parent_harness_result_is_refused_while_a_child_runs() {
         )
         .unwrap();
     let parent = store
-        .add_work_task(project.id, worker.id, "Coordinate", None)
+        .add_work_task_args(project.id, worker.id, "Coordinate", None)
         .unwrap();
     let child = store
-        .add_work_task(project.id, worker.id, "Delegated", Some(parent.id))
+        .add_work_task_args(project.id, worker.id, "Delegated", Some(parent.id))
         .unwrap();
     store
-        .begin_execution(child.id, None, None, state.path(), "boot")
+        .begin_execution_args(child.id, None, None, state.path(), "boot")
         .unwrap();
 
     // The harness reports success, but the running child refuses completion.
     let error = Executor::new(&database)
-        .run(&mut store, parent.id, None, false, None)
+        .run(
+            &mut store,
+            parent.id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(
         error
@@ -1741,7 +1992,7 @@ fn cli_completion_surfaces_name_the_blocking_children() {
         .register_project("project", project_dir.path())
         .unwrap();
     let worker = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "worker",
             "claude-code",
@@ -1751,10 +2002,10 @@ fn cli_completion_surfaces_name_the_blocking_children() {
         )
         .unwrap();
     let parent = store
-        .add_work_task(project.id, worker.id, "Coordinate", None)
+        .add_work_task_args(project.id, worker.id, "Coordinate", None)
         .unwrap();
     let child = store
-        .add_work_task(project.id, worker.id, "Delegated", Some(parent.id))
+        .add_work_task_args(project.id, worker.id, "Delegated", Some(parent.id))
         .unwrap();
     drop(store);
 
@@ -1795,13 +2046,13 @@ fn executable_checkpoint_registration_requires_a_review_prompt() {
             ("cursor", cursor_settings(&executable, prompt)),
         ] {
             let error = store
-                .register_agent(project.id, name, harness, "model", &settings, true)
+                .register_agent_args(project.id, name, harness, "model", &settings, true)
                 .unwrap_err();
             assert!(error.to_string().contains("non-empty review_prompt"));
         }
     }
     let reviewer = store
-        .register_agent(
+        .register_agent_args(
             project.id,
             "reviewer",
             "claude-code",
@@ -1817,7 +2068,7 @@ fn executable_checkpoint_registration_requires_a_review_prompt() {
         .register_project("manual-project", manual_project_dir.path())
         .unwrap();
     store
-        .register_agent(manual_project.id, "human", "manual", "human", "{}", true)
+        .register_agent_args(manual_project.id, "human", "manual", "human", "{}", true)
         .unwrap();
     // Updating revalidates: an executable reviewer cannot drop its prompt.
     let dropped = store
@@ -1838,7 +2089,15 @@ fn agent_update_repins_the_executable_and_recovers_the_same_session() {
     // result, leaving an interrupted task with a captured chat id.
     fake_cursor(&symlink_path, "2026.08.04-aaa8809", CURSOR_ERROR_RESULT);
     Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert_eq!(
         store.task(work_id).unwrap().session_id.as_deref(),
@@ -1848,7 +2107,15 @@ fn agent_update_repins_the_executable_and_recovers_the_same_session() {
     // The mutable vendor path then auto-updates, so resume is refused.
     fake_cursor(&symlink_path, "2026.09.01-0000000", CURSOR_SUCCESS);
     let mismatch = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap_err();
     assert!(mismatch.to_string().contains("version mismatch"));
 
@@ -1877,7 +2144,15 @@ fn agent_update_repins_the_executable_and_recovers_the_same_session() {
             .contains("versions-2026.08.04-aaa8809-cursor-agent")
     );
     let completed = Executor::new(&database)
-        .run(&mut store, work_id, None, false, None)
+        .run(
+            &mut store,
+            work_id,
+            &mush::executor::RunOptions {
+                worktree: None,
+                restart_session: false,
+                prompt_override: None,
+            },
+        )
         .unwrap();
     assert_eq!(completed.status, TaskStatus::Completed);
     assert_eq!(completed.session_id.as_deref(), Some("chat-1234"));
