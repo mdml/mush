@@ -8,11 +8,11 @@ Mush advances through one active, usable vertical slice at a time. This file own
 
 **Outcome:** A coordinator can disappear mid-workflow and the work it already declared still finishes.
 
-**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. Further product behavior is paused while the repository activates the quality controls that should have accompanied the growing M4 implementation.
+**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. The quality-baseline slice closed on 2026-08-20: `just gate` is an honest merge-confidence signal, its deterministic subset runs on pull requests to protected `main`, coverage is measured and ratcheted, and every supported production file scores CodeScene 10.0 under stock rules.
 
-**Current slice:** Establish and enforce the quality baseline, then remediate what it exposes. Decide coverage measurement and ratcheting, CodeScene credential and supported-file policy, and dependency security and license policy; make `just gate` an honestly usable merge-confidence signal; enforce its deterministic checks on pull requests to protected `main`; and split production modules where measured cohesion shows that responsibilities have accumulated. Do not add more M4 behavior until this slice passes its gate.
+**Current slice:** Return the Cursor adapter's autonomy choice to the operator. `CursorSettings` gains a required `approval_mode` carrying cursor-agent's own run-mode vocabulary, the adapter translates it into exactly one invocation flag instead of hardcoding `--force`, `allowlist` is refused for executable agents, and `--trust` stays Mush-owned execution enablement. The slice also ships the harness setup guide that documents each adapter's machine-layer assumptions. It resolves the one deviation the [agent-configuration-ownership decision](decisions/2026-08-20-agent-configuration-ownership.md) recorded against its own boundary; it is deliberately narrow, and no other M4 behavior belongs in it.
 
-The trigger was observed rather than speculative. At the start of the slice, production code had 80.12% line coverage, while `store.rs` had grown to 1,734 lines and `executor.rs` to 850 lines. Existing tests provided substantial behavioral evidence, but the repository did not measure branch coverage, enforce a coverage ratchet, run CodeScene, or apply its documented dependency policy. A deliberately failing `just gate` made those absences visible without controlling further growth.
+This is a breaking settings change under `deny_unknown_fields`. A Cursor agent registered before the field existed fails to run with a settings error naming it, and one `mush agent update` per agent repairs it. Nothing is defaulted or migrated, because inferring the mode would put the autonomy choice back inside Mush.
 
 **Gate:** Given a useful goal rather than a prewritten task graph, a fresh coordinator using the installed Mush skill delegates and adapts across at least two harnesses. The launching conversation may disappear after work is queued. Mush advances the declared graph until fresh judgment or a specific intervention is required, and blocking observation provides durable progress without conversational polling. The result and its revisions remain understandable without reconstructing transcripts.
 
@@ -20,11 +20,12 @@ The trigger was observed rather than speculative. At the start of the slice, pro
 
 This is a forecast, not a schedule. Revise it when review evidence changes what the milestone needs.
 
-1. Activate the quality gate, enforce its deterministic checks in clean-checkout CI and a protected-main ruleset, and remediate its coverage, code-health, and dependency-policy findings without changing product behavior.
-2. Accept the explicit runner and executable work-task dependency chain against that gate.
-3. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
-4. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
-5. Run the gate against a real project goal selected at use time, then revise the path in response to what that run exposes.
+1. Activate the quality gate, enforce its deterministic checks in clean-checkout CI and a protected-main ruleset, and remediate its coverage, code-health, and dependency-policy findings without changing product behavior. Done 2026-08-20.
+2. Return Cursor's autonomy choice to the operator so the configuration-ownership boundary holds for every adapter.
+3. Accept the explicit runner and executable work-task dependency chain against that gate.
+4. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
+5. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
+6. Run the gate against a real project goal selected at use time, then revise the path in response to what that run exposes.
 
 Blocking observation may already satisfy M4's notification boundary. The gate run should decide whether any additional notification mechanism is necessary; do not allocate work to one in advance.
 
@@ -33,7 +34,7 @@ Blocking observation may already satisfy M4's notification boundary. The gate ru
 - [Dynamic task graph and durable observation](decisions/2026-08-18-m4-dynamic-task-graph.md) establishes the task graph, readiness, delivery, and observation model.
 - [The explicit runner surface](decisions/2026-08-19-explicit-runner-surface.md) supersedes that record's launch-pump and same-boot liveness choices; its other consequences remain in force.
 - [Quality verification policy](decisions/2026-08-20-quality-verification-policy.md) establishes measured coverage ratchets, stock-rule CodeScene enforcement, dependency policy, clean-checkout checks, and protected-main requirements for the active stabilization slice.
-- [Agent configuration ownership](decisions/2026-08-20-agent-configuration-ownership.md) records the three-layer configuration boundary and schedules the Cursor adapter's hardcoded-autonomy remediation behind the quality slice.
+- [Agent configuration ownership](decisions/2026-08-20-agent-configuration-ownership.md) records the three-layer configuration boundary whose Cursor remediation this slice implements.
 
 ## Milestone sequence
 

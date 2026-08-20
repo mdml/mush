@@ -202,10 +202,20 @@ const CURSOR_NO_RESULT: &str = r#"printf '%s\n' '{"type":"system","subtype":"ini
 
 #[cfg(unix)]
 fn cursor_settings(executable: &std::path::Path, review_prompt: Option<&str>) -> String {
+    cursor_settings_with_mode(executable, review_prompt, "unrestricted")
+}
+
+#[cfg(unix)]
+fn cursor_settings_with_mode(
+    executable: &std::path::Path,
+    review_prompt: Option<&str>,
+    approval_mode: &str,
+) -> String {
     serde_json::json!({
         "executable": executable,
         "version": "2026.08.04-aaa8809",
         "model": "composer-2.5",
+        "approval_mode": approval_mode,
         "review_prompt": review_prompt,
     })
     .to_string()
@@ -330,6 +340,130 @@ fn cursor_executor_captures_session_owns_worktree_and_reviews_independently() {
     let resumed = launch_arguments(state.path(), checkpoint.id, 2);
     assert!(resumed.contains(&"--resume".to_owned()));
     assert!(resumed.contains(&"chat-1234".to_owned()));
+}
+
+#[cfg(unix)]
+fn cursor_first_launch_arguments(approval_mode: &str) -> Vec<String> {
+    let state = tempfile::tempdir().unwrap();
+    let project_dir = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let executable = state.path().join("cursor-agent");
+    fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_SUCCESS);
+    git_project(project_dir.path());
+    let mut store = Store::open(&database).unwrap();
+    let project = store
+        .register_project("project", project_dir.path())
+        .unwrap();
+    let worker = store
+        .register_agent_args(
+            project.id,
+            "worker",
+            "cursor",
+            "composer-2.5",
+            &cursor_settings_with_mode(&executable, None, approval_mode),
+            false,
+        )
+        .unwrap();
+    let work = store
+        .add_work_task_args(project.id, worker.id, "Implement cursor work", None)
+        .unwrap();
+    Executor::new(&database)
+        .run(&mut store, work.id, &mush::executor::RunOptions::default())
+        .unwrap();
+    launch_arguments(state.path(), work.id, 1)
+}
+
+#[cfg(unix)]
+#[test]
+fn cursor_approval_mode_chooses_the_vendor_flag_and_trust_stays_mush_owned() {
+    let unrestricted = cursor_first_launch_arguments("unrestricted");
+    assert_eq!(
+        unrestricted,
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--model",
+            "composer-2.5",
+            "--force",
+            "--trust",
+        ]
+    );
+
+    let auto_review = cursor_first_launch_arguments("auto-review");
+    assert_eq!(
+        auto_review,
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--model",
+            "composer-2.5",
+            "--auto-review",
+            "--trust",
+        ]
+    );
+    assert!(
+        !auto_review.contains(&"--force".to_owned()),
+        "an auto-review agent must not carry the old unconditional autonomy flag"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cursor_auto_review_resume_keeps_the_session_and_the_registered_mode() {
+    let state = tempfile::tempdir().unwrap();
+    let project_dir = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let executable = state.path().join("cursor-agent");
+    fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_ERROR_RESULT);
+    git_project(project_dir.path());
+    let mut store = Store::open(&database).unwrap();
+    let project = store
+        .register_project("project", project_dir.path())
+        .unwrap();
+    let worker = store
+        .register_agent_args(
+            project.id,
+            "worker",
+            "cursor",
+            "composer-2.5",
+            &cursor_settings_with_mode(&executable, None, "auto-review"),
+            false,
+        )
+        .unwrap();
+    let work = store
+        .add_work_task_args(project.id, worker.id, "Implement cursor work", None)
+        .unwrap();
+    Executor::new(&database)
+        .run(&mut store, work.id, &mush::executor::RunOptions::default())
+        .unwrap_err();
+    assert_eq!(
+        store.task(work.id).unwrap().session_id.as_deref(),
+        Some("chat-1234")
+    );
+
+    fake_cursor(&executable, "2026.08.04-aaa8809", CURSOR_SUCCESS);
+    let completed = Executor::new(&database)
+        .run(&mut store, work.id, &mush::executor::RunOptions::default())
+        .unwrap();
+    assert_eq!(completed.status, TaskStatus::Completed);
+    assert_eq!(completed.session_id.as_deref(), Some("chat-1234"));
+    let resumed = launch_arguments(state.path(), work.id, 2);
+    assert_eq!(
+        resumed,
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--model",
+            "composer-2.5",
+            "--auto-review",
+            "--trust",
+            "--resume",
+            "chat-1234",
+        ]
+    );
 }
 
 #[cfg(unix)]

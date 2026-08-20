@@ -49,6 +49,7 @@ pub(super) struct CursorSettings {
     #[serde(default)]
     version: Option<String>,
     model: String,
+    approval_mode: String,
     #[serde(default)]
     review_prompt: Option<String>,
 }
@@ -97,8 +98,39 @@ fn parse_codex(settings: &str) -> Result<CodexSettings, DomainError> {
 }
 
 fn parse_cursor(settings: &str) -> Result<CursorSettings, DomainError> {
-    serde_json::from_str(settings)
-        .map_err(|error| DomainError::Invalid(format!("invalid cursor settings: {error}")))
+    let settings: CursorSettings = serde_json::from_str(settings)
+        .map_err(|error| DomainError::Invalid(format!("invalid cursor settings: {error}")))?;
+    validate_cursor_approval_mode(&settings.approval_mode)?;
+    Ok(settings)
+}
+
+/// The cursor-agent invocation flag for one of Cursor's own run modes, or
+/// `None` when the mode cannot run headless. `allowlist` has no flag because it
+/// is the CLI's default rather than something to request.
+fn cursor_approval_flag(mode: &str) -> Option<&'static str> {
+    match mode {
+        "unrestricted" => Some("--force"),
+        "auto-review" => Some("--auto-review"),
+        _ => None,
+    }
+}
+
+/// Refuse a Cursor run mode that an executable agent cannot use. `allowlist`
+/// is the dangerous one: run headless it denies every unlisted tool call and
+/// still reports a successful, non-error result, so a task would complete
+/// having executed nothing.
+fn validate_cursor_approval_mode(mode: &str) -> Result<(), DomainError> {
+    if cursor_approval_flag(mode).is_some() {
+        return Ok(());
+    }
+    let reason = if mode == "allowlist" {
+        "cursor-agent denies every unlisted tool call headless while still reporting success, so the task would complete having executed nothing"
+    } else {
+        "it is not one of cursor-agent's run modes"
+    };
+    Err(DomainError::Invalid(format!(
+        "cursor approval_mode \"{mode}\" cannot run an executable agent: {reason}; register \"unrestricted\" or \"auto-review\""
+    )))
 }
 
 impl Harness {
@@ -292,13 +324,15 @@ fn codex_arguments(settings: &CodexSettings, invocation: &Invocation<'_>) -> Vec
 }
 
 fn cursor_arguments(settings: &CursorSettings, invocation: &Invocation<'_>) -> Vec<String> {
+    let approval = cursor_approval_flag(&settings.approval_mode)
+        .expect("cursor settings are validated before they reach an invocation");
     let mut args = vec![
         "-p".into(),
         "--output-format".into(),
         "stream-json".into(),
         "--model".into(),
         settings.model.clone(),
-        "--force".into(),
+        approval.into(),
         "--trust".into(),
     ];
     if invocation.resuming {
