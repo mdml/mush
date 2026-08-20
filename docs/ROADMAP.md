@@ -8,11 +8,11 @@ Mush advances through one active, usable vertical slice at a time. This file own
 
 **Outcome:** A coordinator can disappear mid-workflow and the work it already declared still finishes.
 
-**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted. The smallest executable dependency chain is open while its runner surface is revised.
+**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. Further product behavior is paused while the repository activates the quality controls that should have accompanied the growing M4 implementation.
 
-**Current slice:** An interactive coordinator creates ordinary tasks and independent dependency edges as it learns. Mush durably records readiness, queues declared work, executes it through an explicit runner, survives the loss of the launching conversation, and exposes progress through status and blocking wait commands.
+**Current slice:** Establish and enforce the quality baseline, then remediate what it exposes. Decide coverage measurement and ratcheting, CodeScene credential and supported-file policy, and dependency security and license policy; make `just gate` an honestly usable merge-confidence signal; enforce its deterministic checks on pull requests to protected `main`; and split production modules where measured cohesion shows that responsibilities have accumulated. Do not add more M4 behavior until this slice passes its gate.
 
-The first implementation spread the runner role across unrelated commands: mutating commands pumped launches, commands reconciled on startup, and `task wait` also acted as a scheduler. The revision makes execution explicit through `mush runner`, uses operating-system locks to determine execution liveness, and keeps `task recover` as the only relaunch path.
+The trigger is observed rather than speculative. The current production code has 80.12% line coverage, while `store.rs` has grown to 1,734 lines and `executor.rs` to 850 lines. Existing tests provide substantial behavioral evidence, but the repository does not measure branch coverage, enforce a coverage ratchet, run CodeScene, or apply its documented dependency policy. A deliberately failing `just gate` has made those absences visible without controlling further growth.
 
 **Gate:** Given a useful goal rather than a prewritten task graph, a fresh coordinator using the installed Mush skill delegates and adapts across at least two harnesses. The launching conversation may disappear after work is queued. Mush advances the declared graph until fresh judgment or a specific intervention is required, and blocking observation provides durable progress without conversational polling. The result and its revisions remain understandable without reconstructing transcripts.
 
@@ -20,10 +20,11 @@ The first implementation spread the runner role across unrelated commands: mutat
 
 This is a forecast, not a schedule. Revise it when review evidence changes what the milestone needs.
 
-1. Finish the explicit runner and executable work-task dependency chain.
-2. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
-3. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
-4. Run the gate against a real project goal selected at use time, then revise the path in response to what that run exposes.
+1. Activate the quality gate, enforce its deterministic checks in clean-checkout CI and a protected-main ruleset, and remediate its coverage, code-health, and dependency-policy findings without changing product behavior.
+2. Accept the explicit runner and executable work-task dependency chain against that gate.
+3. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
+4. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
+5. Run the gate against a real project goal selected at use time, then revise the path in response to what that run exposes.
 
 Blocking observation may already satisfy M4's notification boundary. The gate run should decide whether any additional notification mechanism is necessary; do not allocate work to one in advance.
 
@@ -47,7 +48,7 @@ Blocking observation may already satisfy M4's notification boundary. The gate ru
 
 - **M5:** From the public repository, a new user on a clean supported machine can understand Mush's status and support boundaries, install a versioned release and its matching skill, configure a supported harness, pass diagnostics, complete a reviewed task, upgrade, and remove the installation. Apache-2.0 licensing, generated release notes, checksummed platform archives, per-target CycloneDX SBOMs, and build-provenance and SBOM attestations are produced by pinned automation that creates a draft prerelease for human publication. Published releases and their tags are immutable. The full merge gate passes rather than skipping, and a simulated harness-output change fails an adapter compatibility test with an actionable diagnosis.
 
-The comprehensive merge gate remains deliberately unavailable until the coverage, CodeScene, and dependency-policy decisions in [VERIFICATION.md](VERIFICATION.md) are activated.
+M4 activates the local merge-confidence gate and enforces its deterministic subset on pull requests before adding more product behavior. M5 adds release-specific enforcement: supported-platform artifact builds, immutable release tags, generated release notes, checksums, SBOMs, provenance attestations, and human-controlled publication.
 
 ## Operating rules
 
