@@ -27,6 +27,8 @@ Interface code depends on domain services rather than directly implementing task
 
 A harness's native subagents hide delegation from Mush, so adapters keep them off by default and subtask-enabled agents delegate through `mush`. The Claude Code adapter disallows the CLI's built-in subagent tool unless the agent's registered settings explicitly opt in, and the Codex adapter disables the CLI's `multi_agent` feature on the same terms. cursor-agent has no per-invocation tool-disable flag, so Cursor subagent policy lives in machine-level Cursor permissions managed outside Mush; that asymmetry is a recorded boundary, not an accident.
 
+Harness configuration divides into three ownership layers, recorded in [the agent-configuration-ownership decision](decisions/2026-08-20-agent-configuration-ownership.md). The machine owns durable state — installation, authentication, machine-wide permission policy, sandbox availability — and Mush never writes it. The operator owns autonomy and capability through registered agent settings in the vendor's own vocabulary, relayed verbatim. Mush itself owns only the invocation flags its contract needs: output format, session identity, worktree placement, native-subagent visibility, and workspace trust. Ambient machine posture is observed in launch manifests and captured streams rather than managed. One recorded deviation stands: the Cursor adapter currently hardcodes `--force --trust`, an operator-layer autonomy choice in Mush's layer; the decision records its planned remediation.
+
 ## Repository organization
 
 The small implementation lives in modules matching these ownership boundaries:

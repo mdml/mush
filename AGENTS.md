@@ -20,7 +20,7 @@ Do not trade these boundaries for implementation convenience. If experience show
 2. **A checkpoint is a task.** It reviews another task through `subject_task_id` and stores the decision and evidence; do not introduce parallel checkpoint or review entities without demonstrated need.
 3. **Task relationships remain independent.** `parent_task_id` represents decomposition, `previous_task_id` represents a later semantic attempt, and `subject_task_id` identifies the task under checkpoint review.
 4. **The CLI and TUI share domain operations.** The CLI remains headless for agents and automation. `mush tui` is the human interface, and every TUI mutation must have a non-interactive equivalent.
-5. **Harness adapters translate execution, not product semantics.** Harnesses invoke agents; Mush owns task state, checkpoint flow, evidence, and policy.
+5. **Harness adapters translate execution, not product semantics.** Harnesses invoke agents; Mush owns task state, checkpoint flow, evidence, and policy. Mush never writes harness or machine configuration; autonomy choices travel in registered agent settings in the vendor's own vocabulary.
 6. **Project context preserves provenance.** Repository-owned documents and private overlays may be used together, but Mush must not present overlay content as upstream truth.
 7. **Each project has one home machine initially.** Installation and configuration may span machines; live task state for one project does not.
 8. **No behavior ahead of its milestone.** Implement only the active vertical slice in [docs/ROADMAP.md](docs/ROADMAP.md). Later concepts may be named when necessary to preserve a boundary, but their detailed behavior waits for the milestone that exercises them.
