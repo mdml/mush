@@ -1,0 +1,11 @@
+min_version: 2.1.10
+
+pre-commit:
+  commands:
+    fast:
+      run: just fast
+
+pre-push:
+  commands:
+    gate:
+      run: just gate
