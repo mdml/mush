@@ -6,7 +6,7 @@ Mush is a pre-alpha Rust application. The checked-in command ladder covers the c
 
 Clone the repository and read [`../AGENTS.md`](../AGENTS.md), [`AGENTS.md`](AGENTS.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`ABSTRACTIONS.md`](ABSTRACTIONS.md), and [`ROADMAP.md`](ROADMAP.md).
 
-Development requires the pinned Rust toolchain, `just`, and Python 3.11 or newer. The full gate additionally requires cargo-llvm-cov 0.8.7, `nightly-2026-07-30` with `llvm-tools-preview`, cargo-deny 0.20.2, CodeScene CLI 1.0.39, `jq`, network access, and `CS_ACCESS_TOKEN`. Lefthook is required to install the checked-in hooks with `just hooks-install`.
+Development requires the pinned Rust toolchain, `just`, ripgrep 14.1.1, and Python 3.11 or newer. The full gate additionally requires cargo-llvm-cov 0.8.7, `nightly-2026-07-30` with `llvm-tools-preview`, cargo-deny 0.20.2, CodeScene CLI 1.0.39, `jq`, network access, and `CS_ACCESS_TOKEN`. Lefthook is required to install the checked-in hooks with `just hooks-install`.
 
 ## Development workflow
 
