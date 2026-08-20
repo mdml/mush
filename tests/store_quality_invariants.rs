@@ -405,7 +405,7 @@ fn execution_entry_and_completion_enforce_task_kind_and_lifecycle() {
         .unwrap_err()
         .to_string();
     assert!(
-        checkpoint_error.contains("only pending checkpoint tasks"),
+        checkpoint_error.contains("only checkpoint tasks"),
         "{checkpoint_error}"
     );
     assert_eq!(
@@ -572,4 +572,80 @@ fn task_validation_failures_preserve_registered_and_persisted_state() {
         "{parent_error}"
     );
     assert_eq!(fixture.store.tasks(None).unwrap().len(), count_before);
+}
+
+#[test]
+fn direct_database_writes_cannot_bypass_checkpoint_subject_gating() {
+    let fixture = Fixture::new();
+    let subject = fixture.task("subject");
+    let second_subject = fixture.task("second subject");
+    fixture
+        .store
+        .register_agent(AgentRegistration {
+            project_id: fixture.project_id,
+            name: "reviewer",
+            harness: "manual",
+            model: "human-reviewer",
+            settings: "{}",
+            checkpoint: true,
+        })
+        .unwrap();
+    let mut store = Store::open(&fixture.database).unwrap();
+    let checkpoint = store.create_checkpoint(subject).unwrap().id;
+    let connection = rusqlite::Connection::open(&fixture.database).unwrap();
+
+    for statement in [
+        "UPDATE tasks SET readiness_status='ready' WHERE id=?1",
+        "UPDATE tasks SET readiness_status='claimed' WHERE id=?1",
+        "UPDATE tasks SET execution_status='running' WHERE id=?1",
+        "UPDATE tasks SET decision='accepted' WHERE id=?1",
+    ] {
+        let error = connection
+            .execute(statement, [checkpoint])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("checkpoint subject is not completed"),
+            "{statement}: {error}"
+        );
+    }
+
+    let error = connection
+        .execute(
+            "INSERT INTO tasks(project_id,agent_id,kind,status,description,subject_task_id,readiness_status)
+             VALUES(?1,?2,'checkpoint','pending','bypass',?3,'ready')",
+            rusqlite::params![fixture.project_id, fixture.agent_id, second_subject],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("checkpoint subject is not completed"),
+        "{error}"
+    );
+
+    let error = connection
+        .execute(
+            "INSERT INTO task_dependencies(prerequisite_task_id,dependent_task_id) VALUES(?1,?2)",
+            rusqlite::params![subject, checkpoint],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("only a work task can be a dependent"),
+        "{error}"
+    );
+
+    let error = connection
+        .execute(
+            "INSERT INTO task_dependencies(prerequisite_task_id,dependent_task_id) VALUES(?1,?2)",
+            rusqlite::params![checkpoint, subject],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cannot gate its own subject"), "{error}");
+
+    let untouched = store.task(checkpoint).unwrap();
+    assert_eq!(untouched.readiness_status, ReadinessStatus::Unqueued);
+    assert_eq!(untouched.execution_status, None);
+    assert_eq!(untouched.decision, None);
 }

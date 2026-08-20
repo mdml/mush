@@ -1,4 +1,4 @@
-use crate::{CheckpointDecision, DomainError, Store, Task, TaskKind, TaskStatus};
+use crate::{CheckpointDecision, DomainError, ReadinessStatus, Store, Task, TaskKind, TaskStatus};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -77,6 +77,9 @@ fn review_summary(
     if let Some(subject) = awaited_subject(task, completed) {
         output.push_str(&format!("  awaiting subject: #{subject} not completed\n"));
     }
+    if awaits_decision(task, completed) {
+        output.push_str("  awaiting decision\n");
+    }
     if let Some(decision) = task.decision {
         output.push_str(&format!("  decision: {decision}\n"));
     }
@@ -130,6 +133,20 @@ fn completed_ids(tasks: &[Task]) -> std::collections::HashSet<i64> {
         .filter(|task| task.status == TaskStatus::Completed)
         .map(|task| task.id)
         .collect()
+}
+
+/// An undecided checkpoint whose subject is completed and which has no queue
+/// activity in flight: the graph is waiting on adjudication, not on execution.
+fn awaits_decision(task: &Task, completed: &std::collections::HashSet<i64>) -> bool {
+    task.kind == TaskKind::Checkpoint
+        && task.status == TaskStatus::Pending
+        && task
+            .subject_task_id
+            .is_some_and(|subject| completed.contains(&subject))
+        && matches!(
+            task.readiness_status,
+            ReadinessStatus::Unqueued | ReadinessStatus::Completed
+        )
 }
 
 /// The uncompleted subject a checkpoint created before it finished is waiting
@@ -249,6 +266,8 @@ fn draw(frame: &mut ratatui::Frame<'_>, tasks: &[Task], selected: usize) {
                 " (no checkpoint yet)"
             } else if awaited_subject(task, &completed).is_some() {
                 " (awaiting subject)"
+            } else if awaits_decision(task, &completed) {
+                " (awaiting decision)"
             } else {
                 ""
             };

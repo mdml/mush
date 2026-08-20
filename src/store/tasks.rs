@@ -268,7 +268,7 @@ impl Store {
             "UPDATE tasks SET status='completed',decision=?2,evidence=?3 WHERE id=?1",
             params![checkpoint_id, decision.to_string(), evidence],
         )?;
-        insert_transition(&tx, checkpoint_id, "checkpoint_decided")?;
+        record_transition_and_advance(&tx, checkpoint_id, "checkpoint_decided")?;
         let follow_up_id = if decision == CheckpointDecision::RevisionRequested {
             let subject = query_task(&tx, subject_id)?
                 .ok_or(DomainError::NotFound("subject task", subject_id))?;

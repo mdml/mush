@@ -70,11 +70,12 @@ fn bound_task(task: &mut Task, budget: &mut ObservationBudget, reserved: usize) 
     budget.remaining += reserved;
 }
 
+/// Semantic completion or a parked intervention. An executed, undecided
+/// checkpoint rests at readiness `completed` while its decision is still owed,
+/// so readiness alone does not make a task terminal.
 fn task_is_terminal(task: &Task) -> bool {
-    matches!(
-        task.readiness_status,
-        ReadinessStatus::Completed | ReadinessStatus::InterventionRequired
-    ) || task.status == TaskStatus::Completed
+    task.status == TaskStatus::Completed
+        || task.readiness_status == ReadinessStatus::InterventionRequired
 }
 
 impl Store {

@@ -1,5 +1,29 @@
 use super::*;
 
+/// A queued checkpoint needs a reviewer the runner can actually launch. A
+/// manual reviewer's checkpoint would otherwise become a ready delivery no
+/// execution can ever claim, which parks as an intervention recovery cannot
+/// fix; it is decided through the TUI or `checkpoint decide` without queueing.
+fn ensure_reviewer_is_executable(connection: &Connection, task: &Task) -> Result<(), DomainError> {
+    let harness: Option<String> = connection
+        .query_row(
+            "SELECT harness FROM agents WHERE id=?1",
+            [task.agent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if harness
+        .as_deref()
+        .is_some_and(crate::executor::harness_is_executable)
+    {
+        return Ok(());
+    }
+    Err(DomainError::Invalid(format!(
+        "checkpoint {} is assigned to a reviewer Mush cannot execute; decide it with checkpoint decide or the TUI instead of queueing it",
+        task.id
+    )))
+}
+
 fn launch_is_claimable(connection: &Connection, task: &Task) -> Result<bool, DomainError> {
     if task.status != TaskStatus::Pending {
         return Ok(false);
@@ -16,10 +40,13 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let task = query_task(&tx, task_id)?.ok_or(DomainError::NotFound("task", task_id))?;
-        if task.kind != TaskKind::Work || task.status != TaskStatus::Pending {
+        if task.status != TaskStatus::Pending {
             return Err(DomainError::Invalid(
-                "only pending work tasks can be queued".into(),
+                "only pending tasks can be queued".into(),
             ));
+        }
+        if task.kind == TaskKind::Checkpoint {
+            ensure_reviewer_is_executable(&tx, &task)?;
         }
         if task.readiness_status != ReadinessStatus::Unqueued {
             return Ok(task);
