@@ -4,15 +4,15 @@ Mush advances through one active, usable vertical slice at a time. This file own
 
 ## Current milestone
 
-### M4 — Dynamic workflows and unattended advancement
+### M4 — Bounded cross-harness collaboration
 
-**Outcome:** A coordinator can disappear mid-workflow and the work it already declared still finishes.
+**Outcome:** A human or conversational coordinator can declare and run a bounded cross-harness collaboration without managing each agent session or retaining the workflow in conversational memory.
 
-**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. The quality-baseline slice closed on 2026-08-20: `just gate` is an honest merge-confidence signal, its deterministic subset runs on pull requests to protected `main`, coverage is measured reproducibly and ratcheted, and every supported production file scores CodeScene 10.0 under stock rules. The Cursor autonomy remediation closed on 2026-08-20, so no adapter now chooses an operator's autonomy in Mush's source.
+**Status:** Active since 2026-08-15. The dynamic task graph and durable observation, quality baseline, agent-configuration ownership boundary, explicit runner, and executable work-task dependency chain were accepted through 2026-08-20. A checkpoint-readiness slice was implemented with the full gate passing and remains unreviewed. Product review then found that M4 had optimized for a durable, incrementally extended mid-flight graph before stating the hypothesis that the graph serves. The [episodic execution graph decision](decisions/2026-08-20-episodic-execution-graphs.md) now reorients M4 around episodic declared graphs, semantic checkpoints, budgeted attempts, and repository-owned product truth; the existing implementation remains preserved pending classification against that direction.
 
-**Current slice:** Accept the explicit runner and the executable work-task dependency chain against the now-enforced gate. The behavior is implemented and tested; what remains is demonstrating that a declared chain advances unattended through the runner role and deciding, from that evidence, what the milestone still needs. Scope the slice from what the demonstration exposes rather than in advance.
+**Current slice:** Make the checkpoint contract concrete in the maintained abstractions and turn it into the next implementation brief. A graph-gating checkpoint receives immutable declared criteria and one named result, then records exactly one `met`, `not_met`, or `blocked` decision with bounded evidence. The checkpoint owns adjudication; the declared episode policy owns success advancement and a maximum semantic-attempt loop. Do not review the existing checkpoint-readiness implementation or change product code until this contract and its acceptance example are approved.
 
-**Gate:** Given a useful goal rather than a prewritten task graph, a fresh coordinator using the installed Mush skill delegates and adapts across at least two harnesses. The launching conversation may disappear after work is queued. Mush advances the declared graph until fresh judgment or a specific intervention is required, and blocking observation provides durable progress without conversational polling. The result and its revisions remain understandable without reconstructing transcripts.
+**Gate:** Given a real repository goal and a declared collaboration policy, a fresh coordinator creates an episodic graph using at least two harness families. A result passes through a semantic checkpoint with declared criteria; `not_met` creates another immutable attempt only while a declared semantic-attempt budget remains; `met` advances the episode; and `blocked` or budget exhaustion stops legibly. A human can inspect and step the episode without transcript reconstruction, already-determined work can advance without the declaring conversation, and the result and unresolved decisions remain understandable from the repository and bounded evidence after the episode graph is discarded.
 
 ### Likely path to the gate
 
@@ -20,19 +20,23 @@ This is a forecast, not a schedule. Revise it when review evidence changes what 
 
 1. Activate the quality gate, enforce its deterministic checks in clean-checkout CI and a protected-main ruleset, and remediate its coverage, code-health, and dependency-policy findings without changing product behavior. Done 2026-08-20.
 2. Return Cursor's autonomy choice to the operator so the configuration-ownership boundary holds for every adapter. Done 2026-08-20.
-3. Accept the explicit runner and executable work-task dependency chain against that gate.
-4. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
-5. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
-6. Run the gate against a real project goal selected at use time, then revise the path in response to what that run exposes.
+3. Accept the explicit runner and executable work-task dependency chain against that gate. Done 2026-08-20.
+4. Adjudicate the product hypothesis, public decision-authority boundary, and episodic-graph direction before accepting more product behavior. Done 2026-08-20.
+5. Make semantic checkpoint criteria, decisions, and the bounded attempt policy concrete in the maintained abstractions and approve one executable acceptance example.
+6. Classify existing B-oriented implementation as required episodic mechanism, temporarily tolerable generality, or conflicting product behavior without treating the pending checkpoint-readiness diff as the specification.
+7. Implement only the smallest missing behavior needed for semantic checkpoint criteria, a bounded attempt policy, manual legibility, and mechanical advancement of already-declared work.
+8. Ship the first Mush skill with the CLI so a fresh coordinator can translate an ordinary goal and collaboration policy into an inspectable episode without private machine or database knowledge.
+9. Run the gate against a real project goal selected at use time, then revise the path from its evidence.
 
 Blocking observation may already satisfy M4's notification boundary. The gate run should decide whether any additional notification mechanism is necessary; do not allocate work to one in advance.
 
 ### Decisions
 
+- [Episodic execution graphs](decisions/2026-08-20-episodic-execution-graphs.md) supersedes the durable mid-flight graph as the maintained product direction without rewriting its implementation history.
 - [Dynamic task graph and durable observation](decisions/2026-08-18-m4-dynamic-task-graph.md) establishes the task graph, readiness, delivery, and observation model.
 - [The explicit runner surface](decisions/2026-08-19-explicit-runner-surface.md) supersedes that record's launch-pump and same-boot liveness choices; its other consequences remain in force.
 - [Quality verification policy](decisions/2026-08-20-quality-verification-policy.md) establishes measured coverage ratchets, stock-rule CodeScene enforcement, dependency policy, clean-checkout checks, and protected-main requirements for the active stabilization slice.
-- [Agent configuration ownership](decisions/2026-08-20-agent-configuration-ownership.md) records the three-layer configuration boundary whose Cursor remediation this slice implements.
+- [Agent configuration ownership](decisions/2026-08-20-agent-configuration-ownership.md) records the three-layer configuration boundary whose Cursor remediation the quality slice implemented.
 
 ## Milestone sequence
 
@@ -42,7 +46,7 @@ Blocking observation may already satisfy M4's notification boundary. The gate ru
 | M1 — Manual control loop | A task can be created, completed, checkpointed, and revised by hand, and survives restart | Met 2026-08-07 |
 | M2 — One real executor | A real harness runs a real task, and its evidence remains reviewable after reboot | Met 2026-08-07 |
 | M3 — Cross-harness delegation and review | A coordinator delegates to another vendor's harness, and a checkpoint reviews work its own harness did not produce | Met 2026-08-15 |
-| M4 — Dynamic workflows and unattended advancement | A coordinator can disappear mid-workflow and the declared work still finishes | Active |
+| M4 — Bounded cross-harness collaboration | A human or coordinator can run a bounded, semantic collaboration without managing each agent session | Active |
 | M5 — Public alpha | A new user can discover, install, understand, use, verify, upgrade, and remove a versioned Mush release | Not started |
 
 ### Next gate

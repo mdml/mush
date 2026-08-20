@@ -7,6 +7,7 @@ These instructions apply to every document under `docs/`. They supplement the re
 The documentation should let a new user understand Mush, let a contributor change it safely, and let a maintainer recover the reason for a consequential decision. Each document has one job:
 
 - [`../README.md`](../README.md) introduces the product and its smallest useful path.
+- [`PRODUCT.md`](PRODUCT.md) owns the maintained product hypothesis, refusals, and decision authority.
 - [`ABSTRACTIONS.md`](ABSTRACTIONS.md) defines durable product concepts, relationships, and invariants.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) explains components, dependency flow, file organization, and state management.
 - [`ROADMAP.md`](ROADMAP.md) states the active milestone, sequence, gates, and deferred ideas.
@@ -24,6 +25,7 @@ Mush coordinates agents that may join with no conversational context. A fact rep
 ### Canonical ownership
 
 - State each maintained fact in one canonical document and link to it elsewhere.
+- Keep the full product hypothesis and maintainer decision boundary in `PRODUCT.md`; contributing and agent instructions may summarize their operational consequences and otherwise link to the canonical statement.
 - Do not copy architecture or abstraction deltas into the roadmap. Link the decision record whose `## Consequences` section owns them.
 - Do not put the command ladder anywhere except `VERIFICATION.md`.
 - Keep integration-specific operational detail in `guides/`, not in architecture or the roadmap.
@@ -58,6 +60,7 @@ Mush coordinates agents that may join with no conversational context. A fact rep
 ### Decision records
 
 - Name a decision record `YYYY-MM-DD-short-title.md` using the date the decision was accepted.
+- A decision packet awaiting maintainer adjudication may carry an explicit `proposed` status; do not describe it as accepted or update maintained abstractions as though it were accepted.
 - Record the context, decision, and consequences. Include alternatives only when they help a future maintainer understand why the boundary exists.
 - Do not silently rewrite an accepted decision to make history look cleaner. Add a dated amendment or a superseding decision and link the records in both directions.
 - Update the maintained abstraction or architecture document when a decision changes the current system. A decision record is rationale, not the sole description of current behavior.

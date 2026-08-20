@@ -14,6 +14,16 @@ Work against the active milestone in [`ROADMAP.md`](ROADMAP.md). Prefer a small 
 
 Before changing a durable boundary, update the relevant design document or add a focused decision record. Keep prose soft-wrapped: one line per paragraph or bullet, without artificial column wrapping.
 
+## Decision authority
+
+Mush is a maintainer-led pre-alpha experiment. Contributions and design proposals are welcome, while the maintainer retains decision authority for the product hypothesis, user-visible and domain semantics, milestone outcomes, public interfaces, data-model and difficult-to-reverse architecture, acceptance of consequential decisions, and acceptance of milestone evidence. [`PRODUCT.md`](PRODUCT.md) owns the maintained hypothesis and full boundary.
+
+Human and agent contributors should attack assumptions, present alternatives, and make recommendations. Within an accepted boundary they may independently choose local, reversible implementation details such as naming, internal file organization, test scaffolding, and refactors that preserve established interfaces.
+
+When implementation exposes an unsettled product, domain, data-shape, public-interface, or difficult-to-reverse architectural choice, stop implementation and return a decision packet with the frame, a worked example, alternatives, a recommendation, and explicit refusals. Passing verification establishes implementation evidence; it does not accept that decision or close a milestone gate.
+
+Each implementation slice should state its goal, product frame, one worked example, settled decisions, contributor discretion, refusals, acceptance evidence, and stop conditions. The brief may live in an issue or focused decision record; do not create a parallel repository backlog or plan document.
+
 The command ladder and its semantics live only in [`VERIFICATION.md`](VERIFICATION.md). Use `just fast` for local feedback, `just check` for handoff, and `just gate` before opening or merging a pull request. Use `just gate-verbose` for the same requirements with complete successful output.
 
 ## Commits and worktrees
@@ -28,6 +38,7 @@ Use an isolated Git worktree for concurrent agent work. Never overwrite unrelate
 - `README.md` is the brief user-facing introduction.
 - `AGENTS.md` orients coding agents and names load-bearing boundaries.
 - `docs/ARCHITECTURE.md` owns components, file organization, dependency flow, and state management.
+- `docs/PRODUCT.md` owns the product hypothesis, refusals, and maintainer decision authority.
 - `docs/ABSTRACTIONS.md` owns durable domain concepts and invariants.
 - `docs/ROADMAP.md` owns the active milestone, milestone sequence, gates, and deferred ideas.
 - `docs/VERIFICATION.md` owns correctness and quality standards.
