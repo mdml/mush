@@ -1,6 +1,6 @@
 # Abstractions
 
-Mush provides a small model for declaring bounded collaborations among coding agents and deciding whether their results meet explicit criteria. This document owns the maintained domain concepts and invariants. [The product hypothesis](PRODUCT.md) explains why they exist, [the roadmap](ROADMAP.md) states which vertical slice is active, and the architecture records how the current implementation realizes them.
+Mush provides a small model for declaring bounded collaborations among coding agents and deciding whether their results meet explicit criteria. This document owns the maintained domain concepts and invariants. [The product hypothesis](PRODUCT.md) explains why they exist, [the current milestone](current-milestone.md) states which vertical slice is active, and the architecture records how the current implementation realizes them.
 
 ## Agent
 

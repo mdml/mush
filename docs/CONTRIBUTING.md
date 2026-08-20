@@ -10,7 +10,7 @@ Development requires the pinned Rust toolchain, `just`, ripgrep 14.1.1, and Pyth
 
 ## Development workflow
 
-Work against the active milestone in [`ROADMAP.md`](ROADMAP.md). Prefer a small vertical slice that leaves observable behavior working over a broad layer of unfinished infrastructure. Do not implement abstractions assigned to later milestones merely because the eventual need seems likely.
+Work against the active milestone and slice in [`current-milestone.md`](current-milestone.md). Prefer a small vertical slice that leaves observable behavior working over a broad layer of unfinished infrastructure. Do not implement abstractions assigned to later milestones merely because the eventual need seems likely.
 
 Before changing a durable boundary, update the relevant design document or add a focused decision record. Keep prose soft-wrapped: one line per paragraph or bullet, without artificial column wrapping.
 
@@ -22,7 +22,7 @@ Human and agent contributors should attack assumptions, present alternatives, an
 
 When implementation exposes an unsettled product, domain, data-shape, public-interface, or difficult-to-reverse architectural choice, stop implementation and return a decision packet with the frame, a worked example, alternatives, a recommendation, and explicit refusals. Passing verification establishes implementation evidence; it does not accept that decision or close a milestone gate.
 
-Each implementation slice should state its goal, product frame, one worked example, settled decisions, contributor discretion, refusals, acceptance evidence, and stop conditions. The brief may live in an issue or focused decision record; do not create a parallel repository backlog or plan document.
+Each implementation slice should state its goal, product frame, one worked example, settled decisions, contributor discretion, refusals, acceptance evidence, and stop conditions. The active slice's brief lives in [`current-milestone.md`](current-milestone.md); do not create a parallel repository backlog or plan document.
 
 The command ladder and its semantics live only in [`VERIFICATION.md`](VERIFICATION.md). Use `just fast` for local feedback, `just check` for handoff, and `just gate` before opening or merging a pull request. Use `just gate-verbose` for the same requirements with complete successful output.
 
@@ -40,7 +40,8 @@ Use an isolated Git worktree for concurrent agent work. Never overwrite unrelate
 - `docs/ARCHITECTURE.md` owns components, file organization, dependency flow, and state management.
 - `docs/PRODUCT.md` owns the product hypothesis, refusals, and maintainer decision authority.
 - `docs/ABSTRACTIONS.md` owns durable domain concepts and invariants.
-- `docs/ROADMAP.md` owns the active milestone, milestone sequence, gates, and deferred ideas.
+- `docs/ROADMAP.md` owns the milestone sequence, gates, operating rules, and deferred ideas.
+- `docs/current-milestone.md` owns the active milestone, its active slice, and the slice brief.
 - `docs/VERIFICATION.md` owns correctness and quality standards.
 - `docs/guides/` owns operational guidance for adopted integrations.
 

@@ -34,25 +34,7 @@ No episode row or disposal operation is added in this slice. Tasks stay project-
 
 The slice logically builds on subject gating, queueable checkpoints, and decision-sensitive readiness, which exist only in the unreviewed working-tree change recorded by [checkpoint decision readiness](2026-08-20-checkpoint-decision-readiness.md). That change is reviewed and adjudicated before the slice is built on whatever survives. Its `accepted`-only edge satisfaction and its permanently blocked dependents on a requested revision are superseded by the vocabulary and loop decisions above; its trigger and gating mechanics are expected to survive in shape. Its version-12 migration story is not treated as settling the schema this slice needs.
 
-The review completed the same day and the maintainer accepted the change as the slice's base. `just fast` passed on the reviewed tree, the added tests track that record's verification list, and the review found no blocking defect. Two findings carry into this slice: `subject_task_id` has no schema-level immutability, so the slice adds the retargeting trigger alongside criteria immutability, and the unshipped-version refusal message names a backup that may not exist.
-
-## Implementation brief
-
-This section is the slice brief [CONTRIBUTING.md](../CONTRIBUTING.md) requires; no separate plan document exists.
-
-**Goal.** The [executable checkpoint example](2026-08-20-episodic-execution-graphs.md#executable-checkpoint-example) runs end to end through the public CLI: a declared bounded loop with `max_attempts` three, immutable per-checkpoint criteria, a named adjudicator, budget-gated materialization of linked attempts, a `met` decision from any permitted attempt satisfying the success continuation, and both stop paths reported legibly.
-
-**Worked example.** The seven-step episode and its two stop paths in the episodic decision record are the acceptance example, unchanged. Infrastructure recovery of any one task must not change the semantic-attempt count.
-
-**Settled by this record.** The vocabulary and its row migration, the first-class loop record with the single-task mental model, materialization and queueing by the policy, per-checkpoint adjudicator assignment, the deferred episode entity, and the reviewed checkpoint-readiness base.
-
-**Contributor discretion.** Within those boundaries: exact CLI command and flag naming, the loop record's storage layout, schema version numbering and migration mechanics, criteria and retargeting trigger shape, internal module organization, and test scaffolding. A choice that would change domain semantics, a public interface's meaning, or a difficult-to-reverse data shape beyond what this record settles stops implementation and returns a decision packet.
-
-**Refusals.** Structured criterion records, multiple checkpoints on one attempt, arbitrary condition expressions, mutable budgets, a workflow-authoring language, episode deletion, and notification mechanisms stay out of the slice.
-
-**Acceptance evidence.** Automated tests exercise the worked example and both stop paths, the budget's non-consumption by infrastructure recovery, criteria and subject immutability at the schema layer, and the vocabulary migration of decided M3-era rows. Observation and the TUI restate criteria, decision, evidence, attempt number, remaining budget, and next eligible action without transcript access. The full gate passes.
-
-**Stop conditions.** Budget, criteria, or continuation semantics turning out to need an episode boundary after all; the migration reinterpretation proving lossy for real M3 rows; or any unsettled consequential choice surfacing as above.
+The review completed the same day and the maintainer accepted the change as the slice's base. `just fast` passed on the reviewed tree, the added tests track that record's verification list, and the review found no blocking defect. Two findings carry into the slice: `subject_task_id` has no schema-level immutability, so the slice adds the retargeting trigger alongside criteria immutability, and the unshipped-version refusal message names a backup that may not exist.
 
 ## Consequences
 

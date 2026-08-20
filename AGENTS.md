@@ -8,7 +8,7 @@ Mush is a maintainer-led pre-alpha experiment in bounded collaboration among cod
 
 ## Reading order
 
-Read [README.md](README.md) for the user-facing overview, [docs/PRODUCT.md](docs/PRODUCT.md) for the hypothesis and decision boundary, [docs/ABSTRACTIONS.md](docs/ABSTRACTIONS.md) for the implemented product model, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for components and state, and [docs/ROADMAP.md](docs/ROADMAP.md) for the active milestone and its gate. Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before changing the repository and [docs/VERIFICATION.md](docs/VERIFICATION.md) before handing off work. Integration-specific guidance lives under `docs/guides/`.
+Read [README.md](README.md) for the user-facing overview, [docs/PRODUCT.md](docs/PRODUCT.md) for the hypothesis and decision boundary, [docs/ABSTRACTIONS.md](docs/ABSTRACTIONS.md) for the implemented product model, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for components and state, and [docs/current-milestone.md](docs/current-milestone.md) for the active milestone, its slice, and its gate. Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before changing the repository and [docs/VERIFICATION.md](docs/VERIFICATION.md) before handing off work. Integration-specific guidance lives under `docs/guides/`.
 
 Documentation-specific conventions live in [docs/AGENTS.md](docs/AGENTS.md) and apply to every file under `docs/`.
 
@@ -52,7 +52,8 @@ Correctness and quality standards live in [docs/VERIFICATION.md](docs/VERIFICATI
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) owns file organization, components, dependency flow, and state management.
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) owns setup and development process.
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) owns correctness and quality standards and their command ladder.
-- [docs/ROADMAP.md](docs/ROADMAP.md) owns sequencing, the active milestone, gates, and deferred ideas.
+- [docs/ROADMAP.md](docs/ROADMAP.md) owns the milestone sequence, gates, and deferred ideas.
+- [docs/current-milestone.md](docs/current-milestone.md) owns the active milestone, its active slice, and the slice brief.
 - `docs/guides/` owns integration-specific operational guidance.
 - `docs/decisions/` records consequential choices whose rationale must outlive the implementation that introduced them.
 
