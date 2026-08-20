@@ -42,7 +42,7 @@ impl Store {
         if version == SCHEMA_VERSION {
             return self.refuse_an_outdated_binary();
         }
-        if version > LAST_SHIPPED_SCHEMA_VERSION {
+        if version != 0 && !MIGRATABLE_SCHEMA_VERSIONS.contains(&version) {
             return Err(DomainError::Invalid(format!(
                 "database schema version {version} was never shipped and cannot be migrated; restore the {}.pre-v{SCHEMA_VERSION}.bak backup",
                 self.path.display()
@@ -225,9 +225,10 @@ const CURRENT_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS projects (
                 PRIMARY KEY(task_id,generation)
             );
             CREATE TRIGGER IF NOT EXISTS dependency_invariants_on_insert BEFORE INSERT ON task_dependencies BEGIN
-                SELECT RAISE(ABORT, 'dependencies are work-task only') WHERE
-                    (SELECT kind FROM tasks WHERE id=NEW.prerequisite_task_id) != 'work' OR
+                SELECT RAISE(ABORT, 'only a work task can be a dependent') WHERE
                     (SELECT kind FROM tasks WHERE id=NEW.dependent_task_id) != 'work';
+                SELECT RAISE(ABORT, 'a checkpoint prerequisite cannot gate its own subject') WHERE
+                    (SELECT subject_task_id FROM tasks WHERE id=NEW.prerequisite_task_id) = NEW.dependent_task_id;
                 SELECT RAISE(ABORT, 'dependency tasks must share a project') WHERE
                     (SELECT project_id FROM tasks WHERE id=NEW.prerequisite_task_id) != (SELECT project_id FROM tasks WHERE id=NEW.dependent_task_id);
                 SELECT RAISE(ABORT, 'cannot change dependencies after dependent starts') WHERE
@@ -237,9 +238,12 @@ const CURRENT_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS projects (
                 SELECT RAISE(ABORT, 'task prerequisite limit is {MAX_PREREQUISITES}') WHERE
                     (SELECT COUNT(*) FROM task_dependencies WHERE dependent_task_id=NEW.dependent_task_id) >= {MAX_PREREQUISITES};
                 SELECT RAISE(ABORT, 'dependency would create a cycle') WHERE EXISTS(
-                    WITH RECURSIVE reachable(id) AS (
-                        SELECT dependent_task_id FROM task_dependencies WHERE prerequisite_task_id=NEW.dependent_task_id
-                        UNION SELECT d.dependent_task_id FROM task_dependencies d JOIN reachable r ON d.prerequisite_task_id=r.id
+                    WITH RECURSIVE edges(prereq, dep) AS (
+                        SELECT prerequisite_task_id, dependent_task_id FROM task_dependencies
+                        UNION ALL SELECT subject_task_id, id FROM tasks WHERE kind='checkpoint'
+                    ), reachable(id) AS (
+                        SELECT NEW.dependent_task_id
+                        UNION SELECT e.dep FROM edges e JOIN reachable r ON e.prereq=r.id
                     ) SELECT 1 FROM reachable WHERE id=NEW.prerequisite_task_id
                 );
             END;
@@ -248,6 +252,35 @@ const CURRENT_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS projects (
                     (SELECT status FROM tasks WHERE id=OLD.dependent_task_id) = 'completed' OR
                     (SELECT execution_attempt FROM tasks WHERE id=OLD.dependent_task_id) != 0 OR
                     (SELECT readiness_status FROM tasks WHERE id=OLD.dependent_task_id) IN ('claimed','running','completed','intervention_required');
+            END;
+            CREATE TRIGGER IF NOT EXISTS checkpoint_subject_gate_on_insert
+            BEFORE INSERT ON tasks WHEN NEW.kind = 'checkpoint'
+                AND (NEW.readiness_status IN ('ready','claimed','running')
+                     OR NEW.execution_status = 'running' OR NEW.decision IS NOT NULL)
+                AND (SELECT status FROM tasks WHERE id = NEW.subject_task_id) != 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'checkpoint subject is not completed');
+            END;
+            CREATE TRIGGER IF NOT EXISTS checkpoint_readiness_requires_completed_subject
+            BEFORE UPDATE OF readiness_status ON tasks
+            WHEN NEW.kind = 'checkpoint' AND NEW.readiness_status IN ('ready','claimed','running')
+                AND (SELECT status FROM tasks WHERE id = NEW.subject_task_id) != 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'checkpoint subject is not completed');
+            END;
+            CREATE TRIGGER IF NOT EXISTS checkpoint_execution_requires_completed_subject
+            BEFORE UPDATE OF execution_status ON tasks
+            WHEN NEW.kind = 'checkpoint' AND NEW.execution_status = 'running'
+                AND (SELECT status FROM tasks WHERE id = NEW.subject_task_id) != 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'checkpoint subject is not completed');
+            END;
+            CREATE TRIGGER IF NOT EXISTS checkpoint_decision_requires_completed_subject
+            BEFORE UPDATE OF decision ON tasks
+            WHEN NEW.kind = 'checkpoint' AND NEW.decision IS NOT NULL AND OLD.decision IS NULL
+                AND (SELECT status FROM tasks WHERE id = NEW.subject_task_id) != 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'checkpoint subject is not completed');
             END;
             CREATE TRIGGER IF NOT EXISTS readiness_status_values_on_insert
             BEFORE INSERT ON tasks

@@ -27,7 +27,9 @@ pub(super) fn record_transition_and_advance(
     connection.execute("UPDATE launch_deliveries SET state='delivered',runner_boot_id=NULL,runner_pid=NULL WHERE task_id=?1 AND generation=?2 AND state!='delivered'", params![task_id,generation])?;
     insert_transition(connection, task_id, kind)?;
     ensure_launch_invariant(connection, task_id)?;
-    let dependents = connection.prepare("SELECT dependent_task_id FROM task_dependencies WHERE prerequisite_task_id=?1 ORDER BY dependent_task_id")?.query_map([task_id], |r| r.get::<_,i64>(0))?.collect::<Result<Vec<_>,_>>()?;
+    // A terminal transition can unblock edge dependents and, when the task is
+    // a completed work subject, the checkpoint that reviews it.
+    let dependents = connection.prepare("SELECT dependent_task_id FROM task_dependencies WHERE prerequisite_task_id=?1 UNION SELECT id FROM tasks WHERE subject_task_id=?1 AND kind='checkpoint' ORDER BY 1")?.query_map([task_id], |r| r.get::<_,i64>(0))?.collect::<Result<Vec<_>,_>>()?;
     for id in dependents {
         let advanced = connection.execute(&format!("UPDATE tasks SET readiness_status='ready' WHERE id=?1 AND readiness_status='blocked' AND {PREREQUISITES_SATISFIED_SQL}"), [id])?;
         if advanced == 1 {
@@ -42,7 +44,12 @@ pub(super) fn record_transition_and_advance(
 
 pub(super) const MAX_LAUNCH_ATTEMPTS: i64 = 3;
 const MAX_RETAINED_TRANSITIONS: i64 = 10_000;
-const PREREQUISITES_SATISFIED_SQL: &str = "NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks p ON p.id=d.prerequisite_task_id WHERE d.dependent_task_id=?1 AND p.status!='completed')";
+/// Whether task `?1` may execute: every dependency-edge prerequisite is
+/// completed — and, for a checkpoint prerequisite, decided `accepted` — and,
+/// when `?1` is itself a checkpoint, its subject is completed. Only acceptance
+/// satisfies a checkpoint prerequisite, so a requested revision leaves
+/// dependents blocked while the checkpoint itself completes.
+const PREREQUISITES_SATISFIED_SQL: &str = "NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks p ON p.id=d.prerequisite_task_id WHERE d.dependent_task_id=?1 AND (p.status!='completed' OR (p.kind='checkpoint' AND COALESCE(p.decision,'')!='accepted'))) AND NOT EXISTS(SELECT 1 FROM tasks c JOIN tasks s ON s.id=c.subject_task_id WHERE c.id=?1 AND s.status!='completed')";
 
 pub(super) fn prerequisites_satisfied(
     connection: &Connection,

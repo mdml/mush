@@ -15,7 +15,7 @@ fn owned_rows(connection: &Connection) -> Result<Vec<OwnedRow>, DomainError> {
         .prepare(
             "SELECT t.id,t.readiness_status,t.queue_generation,COALESCE(d.attempts,0)
              FROM tasks t LEFT JOIN launch_deliveries d ON d.task_id=t.id AND d.generation=t.queue_generation
-             WHERE t.status='pending'
+             WHERE t.status='pending' AND t.readiness_status!='completed'
                AND (t.execution_status='running' OR d.state IN ('claimed','delivered')) ORDER BY t.id",
         )?
         .query_map([], |row| {
@@ -76,7 +76,7 @@ fn park_abandoned_row(connection: &Connection, row: &OwnedRow) -> Result<(), Dom
 }
 
 fn recovery_candidates(connection: &Connection) -> Result<Vec<(i64, i64)>, DomainError> {
-    connection.prepare("SELECT t.id,t.project_id FROM tasks t WHERE t.kind='work' AND t.status='pending' AND (t.readiness_status='intervention_required' OR t.execution_status IN ('running','interrupted')) ORDER BY t.id")?
+    connection.prepare("SELECT t.id,t.project_id FROM tasks t WHERE t.status='pending' AND (t.readiness_status='intervention_required' OR t.execution_status IN ('running','interrupted')) ORDER BY t.id")?
         .query_map([], |row| Ok((row.get::<_,i64>(0)?, row.get::<_,i64>(1)?)))?
         .collect::<Result<Vec<_>,_>>()
         .map_err(Into::into)

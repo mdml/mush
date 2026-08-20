@@ -18,9 +18,15 @@ fn validate_dependency_tasks(prerequisite: &Task, dependent: &Task) -> Result<()
             "a task cannot depend on itself".into(),
         ));
     }
-    if prerequisite.kind != TaskKind::Work || dependent.kind != TaskKind::Work {
+    if dependent.kind != TaskKind::Work {
         return Err(DomainError::Invalid(
-            "this slice supports dependencies between work tasks only".into(),
+            "only a work task can be a dependent; a checkpoint's readiness comes from its subject"
+                .into(),
+        ));
+    }
+    if prerequisite.subject_task_id == Some(dependent.id) {
+        return Err(DomainError::Invalid(
+            "a checkpoint prerequisite cannot gate its own subject".into(),
         ));
     }
     if prerequisite.project_id != dependent.project_id {
@@ -57,7 +63,9 @@ fn validate_new_dependency(
             "task {dependent} cannot have more than {MAX_PREREQUISITES} prerequisites"
         )));
     }
-    let cyclic: bool = connection.query_row("WITH RECURSIVE reachable(id) AS (SELECT dependent_task_id FROM task_dependencies WHERE prerequisite_task_id=?1 UNION SELECT d.dependent_task_id FROM task_dependencies d JOIN reachable r ON d.prerequisite_task_id=r.id) SELECT EXISTS(SELECT 1 FROM reachable WHERE id=?2)", params![dependent,prerequisite], |row| row.get(0))?;
+    // A checkpoint implicitly waits on its subject, so subject links count as
+    // readiness edges when looking for a cycle.
+    let cyclic: bool = connection.query_row("WITH RECURSIVE edges(prereq,dep) AS (SELECT prerequisite_task_id,dependent_task_id FROM task_dependencies UNION ALL SELECT subject_task_id,id FROM tasks WHERE kind='checkpoint'), reachable(id) AS (SELECT ?1 UNION SELECT e.dep FROM edges e JOIN reachable r ON e.prereq=r.id) SELECT EXISTS(SELECT 1 FROM reachable WHERE id=?2)", params![dependent,prerequisite], |row| row.get(0))?;
     if cyclic {
         return Err(DomainError::Invalid(format!(
             "dependency {prerequisite} -> {dependent} would create a cycle"

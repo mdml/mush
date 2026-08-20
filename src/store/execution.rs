@@ -225,22 +225,32 @@ impl Store {
             task_id,
             execution_attempt,
         } = owner;
-        let task = self.task(task_id)?;
-        if task.kind != TaskKind::Checkpoint || task.status != TaskStatus::Pending {
-            return Err(DomainError::Invalid(
-                "only pending checkpoint tasks can record review evidence".into(),
-            ));
-        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let changed = tx.execute("UPDATE tasks SET execution_status='succeeded',execution_pid=NULL,evidence=?3 WHERE id=?1 AND execution_status='running' AND execution_attempt=?2", params![task_id,execution_attempt,evidence])?;
+        let task = query_task(&tx, task_id)?.ok_or(DomainError::NotFound("task", task_id))?;
+        if task.kind != TaskKind::Checkpoint {
+            return Err(DomainError::Invalid(
+                "only checkpoint tasks can record review evidence".into(),
+            ));
+        }
+        // A checkpoint decided during its own execution keeps the decision's
+        // evidence and readiness; the execution records only that it
+        // succeeded. Otherwise the queue's job for this checkpoint is done:
+        // its readiness completes so no pass restarts the review, while the
+        // pending status says the decision is still owed.
+        let changed = if task.status == TaskStatus::Completed {
+            tx.execute("UPDATE tasks SET execution_status='succeeded',execution_pid=NULL WHERE id=?1 AND execution_status='running' AND execution_attempt=?2", params![task_id,execution_attempt])?
+        } else {
+            tx.execute("UPDATE tasks SET execution_status='succeeded',execution_pid=NULL,evidence=?3,readiness_status=CASE WHEN readiness_status='unqueued' THEN readiness_status ELSE 'completed' END WHERE id=?1 AND execution_status='running' AND execution_attempt=?2", params![task_id,execution_attempt,evidence])?
+        };
         if changed != 1 {
             return Err(DomainError::Invalid(format!(
                 "task {task_id} execution ownership changed before completion"
             )));
         }
         insert_transition(&tx, task_id, "checkpoint_execution_succeeded")?;
+        ensure_launch_invariant(&tx, task_id)?;
         tx.commit()?;
         self.task(task_id)
     }

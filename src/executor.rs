@@ -24,6 +24,13 @@ pub fn validate_agent_registration(
     harness::validate_registration(harness, settings, checkpoint)
 }
 
+/// Whether Mush can execute agents registered on this harness. A harness name
+/// outside this set registers fine — it names a reviewer Mush cannot launch,
+/// such as a manual human reviewer — but its tasks cannot be queued or run.
+pub fn harness_is_executable(harness: &str) -> bool {
+    harness::is_executable(harness)
+}
+
 /// Take a task's execution lock, or refuse because a live execution holds it.
 /// The lock is taken before the execution claim commits and released by the
 /// kernel when this process ends for any reason.

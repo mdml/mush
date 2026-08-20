@@ -72,17 +72,19 @@ pub struct WorkExecutionResult<'a> {
 }
 
 /// The schema this binary writes and reads.
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
-/// The oldest binary permitted to open a version 11 database. A binary older
+/// The oldest binary permitted to open the current database. A binary older
 /// than the version a database records refuses rather than opening, so the
 /// pre-M4 hazard where an old binary silently re-stamps `user_version` cannot
 /// recur.
 const MIN_BINARY_VERSION: &str = "0.1.0";
 
-/// The last shipped schema, and therefore the only older input the single
-/// migration to version 11 accepts. Versions 4 through 10 were never released.
-const LAST_SHIPPED_SCHEMA_VERSION: i64 = 3;
+/// The schema versions earlier builds actually wrote to real databases, and
+/// therefore the only older inputs migration accepts: version 3 shipped with
+/// M3, and version 11 with the explicit runner slice. Versions 4 through 10
+/// belonged to an unreleased branch and were never shipped.
+const MIGRATABLE_SCHEMA_VERSIONS: [i64; 2] = [3, 11];
 
 const MAX_PREREQUISITES: i64 = 8;
 const MAX_DIAGNOSTIC_BYTES: usize = 1024;

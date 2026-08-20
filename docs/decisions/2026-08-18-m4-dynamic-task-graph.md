@@ -1,6 +1,6 @@
 # M4 dynamic task graph and durable observation
 
-Status: accepted on 2026-08-18. The launch-pump and same-boot liveness portions were superseded by [the explicit runner surface decision](2026-08-19-explicit-runner-surface.md), and its incrementally extended live graph was superseded as the maintained product direction by [the episodic execution graph decision](2026-08-20-episodic-execution-graphs.md).
+Status: accepted on 2026-08-18. The checkpoint prerequisites and decision-sensitive readiness this record deferred were implemented by [the checkpoint decision readiness decision](2026-08-20-checkpoint-decision-readiness.md); the launch-pump and same-boot liveness portions were superseded by [the explicit runner surface decision](2026-08-19-explicit-runner-surface.md); and its incrementally extended live graph was superseded as the maintained product direction by [the episodic execution graph decision](2026-08-20-episodic-execution-graphs.md).
 
 ## Context
 

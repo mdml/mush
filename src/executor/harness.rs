@@ -68,6 +68,11 @@ pub(super) enum Harness {
     Cursor(CursorSettings),
 }
 
+/// The harness names [`Harness::from_agent`] accepts.
+pub(super) fn is_executable(harness: &str) -> bool {
+    matches!(harness, "claude-code" | "codex" | "cursor")
+}
+
 pub(super) fn validate_registration(
     harness: &str,
     settings: &str,
