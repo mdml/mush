@@ -94,11 +94,11 @@ work attempt 41
 
 ## Semantic-attempt budget
 
-A budgeted loop is part of the episode's collaboration policy, not part of the checkpoint decision. It declares the work assignment, checkpoint criteria and adjudicator, the maximum number of semantic work attempts, and the success continuation. Downstream work waits on the loop's success continuation rather than on the first materialized checkpoint, because any permitted attempt may be the one whose checkpoint records `met`.
+A budgeted loop is part of the episode's collaboration policy, not part of the checkpoint decision. It declares the work assignment, checkpoint criteria and adjudicator, the maximum number of semantic work attempts, and the success continuation. From outside, the loop reads as a single task: downstream work depends on the loop itself rather than on any materialized attempt or checkpoint, because any permitted attempt may be the one whose checkpoint records `met`. Attempts and their checkpoints are the loop's internal, immutable, materialized structure.
 
 The maximum counts the initial work attempt. If `max_attempts` is three, the policy can materialize at most three immutable work tasks and three corresponding checkpoints. Infrastructure relaunches and same-session recovery resume one task and do not consume this budget.
 
-When a checkpoint records `not_met` and budget remains, the policy creates a new work task linked through `previous_task_id`. The new attempt receives the original work purpose plus bounded checkpoint evidence, and its new checkpoint uses the same criteria. The previous work result and checkpoint decision remain unchanged.
+When a checkpoint records `not_met` and budget remains, the policy creates a new work task linked through `previous_task_id`. The new attempt receives the original work purpose plus bounded checkpoint evidence, and its new checkpoint uses the same criteria and adjudicator. When the assignment is executable, the policy also queues what it materializes, so already-declared iteration advances without the declaring conversation; a human may still edit an unstarted materialized attempt before it begins. The previous work result and checkpoint decision remain unchanged.
 
 `met` satisfies the loop's success continuation regardless of which permitted attempt produced it. `blocked` stops immediately. `not_met` with no remaining attempt stops as budget exhausted. Changing the criteria, adjudicator policy, or maximum after execution begins is fresh judgment rather than another iteration of the declared loop.
 
