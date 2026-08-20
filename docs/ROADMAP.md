@@ -33,6 +33,7 @@ Blocking observation may already satisfy M4's notification boundary. The gate ru
 - [Dynamic task graph and durable observation](decisions/2026-08-18-m4-dynamic-task-graph.md) establishes the task graph, readiness, delivery, and observation model.
 - [The explicit runner surface](decisions/2026-08-19-explicit-runner-surface.md) supersedes that record's launch-pump and same-boot liveness choices; its other consequences remain in force.
 - [Quality verification policy](decisions/2026-08-20-quality-verification-policy.md) establishes measured coverage ratchets, stock-rule CodeScene enforcement, dependency policy, clean-checkout checks, and protected-main requirements for the active stabilization slice.
+- [Agent configuration ownership](decisions/2026-08-20-agent-configuration-ownership.md) records the three-layer configuration boundary and schedules the Cursor adapter's hardcoded-autonomy remediation behind the quality slice.
 
 ## Milestone sequence
 
