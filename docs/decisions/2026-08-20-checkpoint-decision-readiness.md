@@ -2,6 +2,8 @@
 
 Status: accepted on 2026-08-20. Implements the graph unit that [the M4 dynamic task graph decision](2026-08-18-m4-dynamic-task-graph.md) deferred: checkpoint prerequisites and decision-sensitive readiness.
 
+Amendment, 2026-08-20: the maintainer reviewed and accepted this implementation as the base for [the bounded checkpoint loop decision](2026-08-20-bounded-checkpoint-loop.md). That decision supersedes two behaviors recorded here without re-implementing them yet: the `accepted`-only satisfaction of a checkpoint prerequisite, and dependents of a `revision_requested` checkpoint staying blocked until a human re-points their edges. It also renames the decision vocabulary this record uses to `met`, `not_met`, and `blocked`. The subject gating, queueable checkpoints, readiness rest state, recovery behavior, and version 12 migration mechanics remain in force.
+
 ## Context
 
 The accepted dependency chain advances work tasks only: an edge's sole prerequisite condition is successful work completion, checkpoints cannot be queued, and a checkpoint's wait on its incomplete subject is enforced in domain code alone. A coordinator can therefore declare work and its review up front, but the review does not run unattended, and nothing downstream can be gated on the review's outcome. The M4 gate needs a declared graph in which work runs, its checkpoint reviews it without the coordinator present, and acceptance versus requested revision visibly send the graph down different paths.
