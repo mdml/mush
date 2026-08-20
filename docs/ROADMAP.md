@@ -8,11 +8,9 @@ Mush advances through one active, usable vertical slice at a time. This file own
 
 **Outcome:** A coordinator can disappear mid-workflow and the work it already declared still finishes.
 
-**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. The quality-baseline slice closed on 2026-08-20: `just gate` is an honest merge-confidence signal, its deterministic subset runs on pull requests to protected `main`, coverage is measured and ratcheted, and every supported production file scores CodeScene 10.0 under stock rules.
+**Status:** Active since 2026-08-15. The dynamic task graph and durable observation are accepted, and the explicit runner revision is implemented. The quality-baseline slice closed on 2026-08-20: `just gate` is an honest merge-confidence signal, its deterministic subset runs on pull requests to protected `main`, coverage is measured reproducibly and ratcheted, and every supported production file scores CodeScene 10.0 under stock rules. The Cursor autonomy remediation closed on 2026-08-20, so no adapter now chooses an operator's autonomy in Mush's source.
 
-**Current slice:** Return the Cursor adapter's autonomy choice to the operator. `CursorSettings` gains a required `approval_mode` carrying cursor-agent's own run-mode vocabulary, the adapter translates it into exactly one invocation flag instead of hardcoding `--force`, `allowlist` is refused for executable agents, and `--trust` stays Mush-owned execution enablement. The slice also ships the harness setup guide that documents each adapter's machine-layer assumptions. It resolves the one deviation the [agent-configuration-ownership decision](decisions/2026-08-20-agent-configuration-ownership.md) recorded against its own boundary; it is deliberately narrow, and no other M4 behavior belongs in it.
-
-This is a breaking settings change under `deny_unknown_fields`. A Cursor agent registered before the field existed fails to run with a settings error naming it, and one `mush agent update` per agent repairs it. Nothing is defaulted or migrated, because inferring the mode would put the autonomy choice back inside Mush.
+**Current slice:** Accept the explicit runner and the executable work-task dependency chain against the now-enforced gate. The behavior is implemented and tested; what remains is demonstrating that a declared chain advances unattended through the runner role and deciding, from that evidence, what the milestone still needs. Scope the slice from what the demonstration exposes rather than in advance.
 
 **Gate:** Given a useful goal rather than a prewritten task graph, a fresh coordinator using the installed Mush skill delegates and adapts across at least two harnesses. The launching conversation may disappear after work is queued. Mush advances the declared graph until fresh judgment or a specific intervention is required, and blocking observation provides durable progress without conversational polling. The result and its revisions remain understandable without reconstructing transcripts.
 
@@ -21,7 +19,7 @@ This is a breaking settings change under `deny_unknown_fields`. A Cursor agent r
 This is a forecast, not a schedule. Revise it when review evidence changes what the milestone needs.
 
 1. Activate the quality gate, enforce its deterministic checks in clean-checkout CI and a protected-main ruleset, and remediate its coverage, code-health, and dependency-policy findings without changing product behavior. Done 2026-08-20.
-2. Return Cursor's autonomy choice to the operator so the configuration-ownership boundary holds for every adapter.
+2. Return Cursor's autonomy choice to the operator so the configuration-ownership boundary holds for every adapter. Done 2026-08-20.
 3. Accept the explicit runner and executable work-task dependency chain against that gate.
 4. Make a checkpoint's subject a real prerequisite and make readiness respond differently to acceptance and requested revision.
 5. Ship the first Mush skill with the CLI so a fresh agent can use the public protocol without private knowledge of database paths, agent ids, machine configuration, or harness-specific conventions.
