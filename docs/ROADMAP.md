@@ -53,6 +53,9 @@ Alpha evidence determines whether any of these becomes M6. Their presence here i
 - Additional Flue-backed executors.
 - Deeper delegation, but only when a concrete case cannot be expressed with one level.
 - Cross-machine execution of one project, as a separate architectural decision.
+- Command stages: a loop stage or task kind whose executor is a deterministic command rather than an agent, whose exit status is the decision and whose output is the report, so verifiable quality bars need no adjudicator. Until then, deterministic bars are re-run by a reviewer stage and named in checkpoint criteria.
+- Passing prerequisite reports into every dependent task's prompt, generalizing the loop's report-passing rule to ordinary dependency edges, if real episodes show manual descriptions failing to carry bounded context.
+- Structured report or evidence records with an enforced schema, only after real collaborations demonstrate free-form bounded Markdown reports failing; ABSTRACTIONS already defers richer evidence types.
 
 ## Completed evidence
 
