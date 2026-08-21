@@ -45,11 +45,11 @@ pub(super) fn record_transition_and_advance(
 pub(super) const MAX_LAUNCH_ATTEMPTS: i64 = 3;
 const MAX_RETAINED_TRANSITIONS: i64 = 10_000;
 /// Whether task `?1` may execute: every dependency-edge prerequisite is
-/// completed — and, for a checkpoint prerequisite, decided `accepted` — and,
-/// when `?1` is itself a checkpoint, its subject is completed. Only acceptance
-/// satisfies a checkpoint prerequisite, so a requested revision leaves
-/// dependents blocked while the checkpoint itself completes.
-const PREREQUISITES_SATISFIED_SQL: &str = "NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks p ON p.id=d.prerequisite_task_id WHERE d.dependent_task_id=?1 AND (p.status!='completed' OR (p.kind='checkpoint' AND COALESCE(p.decision,'')!='accepted'))) AND NOT EXISTS(SELECT 1 FROM tasks c JOIN tasks s ON s.id=c.subject_task_id WHERE c.id=?1 AND s.status!='completed')";
+/// completed — and, for a checkpoint prerequisite, decided `met` — and, when
+/// `?1` is itself a checkpoint, its subject is completed. Only `met` satisfies
+/// a checkpoint prerequisite, so `not_met` and `blocked` leave dependents
+/// blocked while the checkpoint itself completes.
+const PREREQUISITES_SATISFIED_SQL: &str = "NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks p ON p.id=d.prerequisite_task_id WHERE d.dependent_task_id=?1 AND (p.status!='completed' OR (p.kind='checkpoint' AND COALESCE(p.decision,'')!='met'))) AND NOT EXISTS(SELECT 1 FROM tasks c JOIN tasks s ON s.id=c.subject_task_id WHERE c.id=?1 AND s.status!='completed')";
 
 pub(super) fn prerequisites_satisfied(
     connection: &Connection,

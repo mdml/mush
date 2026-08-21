@@ -61,6 +61,7 @@ fn bound_task(task: &mut Task, budget: &mut ObservationBudget, reserved: usize) 
     task.description = budget.required(&task.description, MAX_FIELD_BYTES);
     task.result = budget.optional(task.result.as_deref(), MAX_FIELD_BYTES);
     task.evidence = budget.optional(task.evidence.as_deref(), MAX_FIELD_BYTES);
+    task.criteria = budget.optional(task.criteria.as_deref(), MAX_FIELD_BYTES);
     task.intervention = budget.optional(task.intervention.as_deref(), MAX_DIAGNOSTIC_BYTES);
     task.session_id = budget.optional(task.session_id.as_deref(), MAX_IDENTIFIER_BYTES);
     task.worktree_name = budget.optional(task.worktree_name.as_deref(), MAX_IDENTIFIER_BYTES);

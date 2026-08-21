@@ -12,10 +12,12 @@ fn task(kind: TaskKind) -> Task {
         description: "deterministic view".into(),
         result: None,
         evidence: None,
+        criteria: None,
         decision: None,
         parent_task_id: None,
         previous_task_id: None,
         subject_task_id: None,
+        loop_id: None,
         execution_status: None,
         execution_attempt: 0,
         session_id: None,
@@ -51,16 +53,16 @@ fn key_handling_clamps_navigation_and_returns_domain_actions() {
     assert_eq!(selected, 0);
 
     assert_eq!(
-        handle_key(&mut selected, 2, KeyCode::Char('a')),
-        UiAction::Decide(CheckpointDecision::Accepted)
+        handle_key(&mut selected, 2, KeyCode::Char('m')),
+        UiAction::Decide(CheckpointDecision::Met)
     );
     assert_eq!(
         handle_key(&mut selected, 2, KeyCode::Char('b')),
         UiAction::Decide(CheckpointDecision::Blocked)
     );
     assert_eq!(
-        handle_key(&mut selected, 2, KeyCode::Char('r')),
-        UiAction::Decide(CheckpointDecision::RevisionRequested)
+        handle_key(&mut selected, 2, KeyCode::Char('n')),
+        UiAction::Decide(CheckpointDecision::NotMet)
     );
     assert_eq!(
         handle_key(&mut selected, 2, KeyCode::Char('q')),
@@ -134,11 +136,11 @@ fn deciding_the_selected_checkpoint_persists_its_evidence_and_decision() {
         .position(|task| task.id == checkpoint.id)
         .unwrap();
 
-    decide_selected(&mut store, &tasks, selected, CheckpointDecision::Accepted).unwrap();
+    decide_selected(&mut store, &tasks, selected, CheckpointDecision::Met).unwrap();
 
     let decided = store.task(checkpoint.id).unwrap();
     assert_eq!(decided.status, TaskStatus::Completed);
-    assert_eq!(decided.decision, Some(CheckpointDecision::Accepted));
+    assert_eq!(decided.decision, Some(CheckpointDecision::Met));
     assert_eq!(decided.evidence.as_deref(), Some("subject evidence"));
 }
 
@@ -170,7 +172,7 @@ fn deciding_an_ineligible_selection_is_a_no_op() {
         .unwrap();
     let tasks = store.tasks(Some(project.id)).unwrap();
 
-    decide_selected(&mut store, &tasks, 0, CheckpointDecision::Accepted).unwrap();
+    decide_selected(&mut store, &tasks, 0, CheckpointDecision::Met).unwrap();
 
     assert_eq!(store.task(work.id).unwrap().status, TaskStatus::Pending);
 }
@@ -188,7 +190,7 @@ fn details_render_present_values_and_explicit_absences() {
     populated.parent_task_id = Some(1);
     populated.subject_task_id = Some(5);
     populated.previous_task_id = Some(6);
-    populated.decision = Some(CheckpointDecision::RevisionRequested);
+    populated.decision = Some(CheckpointDecision::NotMet);
     populated.intervention = Some("repair configuration".into());
     populated.artifact_dir = Some("artifacts/task-7".into());
     populated.evidence = Some("asserted evidence".into());
@@ -199,7 +201,7 @@ fn details_render_present_values_and_explicit_absences() {
         "Parent: #1",
         "Subject: #5",
         "Previous: #6",
-        "Decision: revision_requested",
+        "Decision: not_met",
         "Intervention: repair configuration",
         "Artifacts: artifacts/task-7",
         "Markdown evidence\nasserted evidence",

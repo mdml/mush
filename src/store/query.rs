@@ -13,7 +13,7 @@ pub(super) fn subject_evidence(subject: &Task) -> String {
     })
 }
 
-pub(super) const TASK_SELECT: &str = "SELECT id,project_id,agent_id,kind,status,description,result,evidence,decision,parent_task_id,previous_task_id,subject_task_id,execution_status,execution_attempt,session_id,worktree_name,artifact_dir,execution_boot_id,execution_pid,readiness_status,queue_generation,COALESCE(intervention,(SELECT diagnostic FROM launch_deliveries WHERE task_id=tasks.id AND generation=tasks.queue_generation AND state='intervention_required')) FROM tasks";
+pub(super) const TASK_SELECT: &str = "SELECT id,project_id,agent_id,kind,status,description,result,evidence,criteria,decision,parent_task_id,previous_task_id,subject_task_id,loop_id,execution_status,execution_attempt,session_id,worktree_name,artifact_dir,execution_boot_id,execution_pid,readiness_status,queue_generation,COALESCE(intervention,(SELECT diagnostic FROM launch_deliveries WHERE task_id=tasks.id AND generation=tasks.queue_generation AND state='intervention_required')) FROM tasks";
 
 pub(super) fn query_checkpoint(
     connection: &Connection,
@@ -39,8 +39,8 @@ pub(super) fn query_task(connection: &Connection, id: i64) -> Result<Option<Task
 pub(super) fn row_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     let kind: String = row.get(3)?;
     let status: String = row.get(4)?;
-    let decision: Option<String> = row.get(8)?;
-    let execution_status: Option<String> = row.get(12)?;
+    let decision: Option<String> = row.get(9)?;
+    let execution_status: Option<String> = row.get(14)?;
     Ok(Task {
         id: row.get(0)?,
         project_id: row.get(1)?,
@@ -50,24 +50,26 @@ pub(super) fn row_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         description: row.get(5)?,
         result: row.get(6)?,
         evidence: row.get(7)?,
+        criteria: row.get(8)?,
         decision: decision
-            .map(|value| parse_database_enum(8, &value))
+            .map(|value| parse_database_enum(9, &value))
             .transpose()?,
-        parent_task_id: row.get(9)?,
-        previous_task_id: row.get(10)?,
-        subject_task_id: row.get(11)?,
+        parent_task_id: row.get(10)?,
+        previous_task_id: row.get(11)?,
+        subject_task_id: row.get(12)?,
+        loop_id: row.get(13)?,
         execution_status: execution_status
-            .map(|value| parse_database_enum(12, &value))
+            .map(|value| parse_database_enum(14, &value))
             .transpose()?,
-        execution_attempt: row.get(13)?,
-        session_id: row.get(14)?,
-        worktree_name: row.get(15)?,
-        artifact_dir: row.get(16)?,
-        execution_boot_id: row.get(17)?,
-        execution_pid: row.get(18)?,
-        readiness_status: parse_database_enum(19, &row.get::<_, String>(19)?)?,
-        queue_generation: row.get(20)?,
-        intervention: row.get(21)?,
+        execution_attempt: row.get(15)?,
+        session_id: row.get(16)?,
+        worktree_name: row.get(17)?,
+        artifact_dir: row.get(18)?,
+        execution_boot_id: row.get(19)?,
+        execution_pid: row.get(20)?,
+        readiness_status: parse_database_enum(21, &row.get::<_, String>(21)?)?,
+        queue_generation: row.get(22)?,
+        intervention: row.get(23)?,
     })
 }
 
