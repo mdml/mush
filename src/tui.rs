@@ -1,5 +1,6 @@
 use crate::{
-    CheckpointDecision, DomainError, LoopReport, ReadinessStatus, Store, Task, TaskKind, TaskStatus,
+    CheckpointDecision, DomainError, LoopAttempt, LoopReport, ReadinessStatus, Store, Task,
+    TaskKind, TaskStatus,
 };
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -51,15 +52,7 @@ fn snapshot_loop(report: &LoopReport) -> String {
         output.push_str(&format!("    {line}\n"));
     }
     for attempt in &report.attempts {
-        output.push_str(&format!(
-            "  attempt {}: stages {:?}, checkpoint #{}, decision: {}\n",
-            attempt.number,
-            attempt.stage_task_ids,
-            attempt.checkpoint_task_id,
-            attempt
-                .decision
-                .map_or_else(|| "undecided".to_owned(), |decision| decision.to_string())
-        ));
+        output.push_str(&snapshot_attempt(attempt));
     }
     if let Some(continuation) = report.declaration.continuation_task_id {
         output.push_str(&format!("  continuation: #{continuation}\n"));
@@ -68,6 +61,29 @@ fn snapshot_loop(report: &LoopReport) -> String {
         "  remaining attempts: {}\n  next: {}\n",
         report.remaining_attempts, report.next_action
     ));
+    output
+}
+
+/// One materialized attempt: its stages, its checkpoint, and the decision
+/// with the evidence recorded against the declared criteria, so the loop's
+/// adjudications read without opening its internal checkpoint tasks.
+fn snapshot_attempt(attempt: &LoopAttempt) -> String {
+    let mut output = format!(
+        "  attempt {}: stages {:?}, checkpoint #{}, decision: {}\n",
+        attempt.number,
+        attempt.stage_task_ids,
+        attempt.checkpoint_task_id,
+        attempt
+            .decision
+            .map_or_else(|| "undecided".to_owned(), |decision| decision.to_string())
+    );
+    let Some(evidence) = &attempt.evidence else {
+        return output;
+    };
+    output.push_str("    evidence (Markdown):\n");
+    for line in evidence.lines() {
+        output.push_str(&format!("      {line}\n"));
+    }
     output
 }
 

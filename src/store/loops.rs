@@ -271,26 +271,36 @@ fn materialized_attempts(
     let work_members = member_ids(context, connection, "work")?;
     let checkpoints = connection
         .prepare(
-            "SELECT id,decision FROM tasks WHERE loop_id=?1 AND kind='checkpoint' ORDER BY id",
+            "SELECT id,decision,evidence FROM tasks WHERE loop_id=?1 AND kind='checkpoint' ORDER BY id",
         )?
         .query_map([context.declared.id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     checkpoints
         .iter()
         .enumerate()
-        .map(|(index, (checkpoint_task_id, decision))| {
+        .map(|(index, (checkpoint_task_id, decision, evidence))| {
             let start = index * context.stages.len();
             let end = (start + context.stages.len()).min(work_members.len());
+            let decision = decision
+                .as_deref()
+                .map(CheckpointDecision::from_str)
+                .transpose()?;
             Ok(LoopAttempt {
                 number: index as i64 + 1,
                 stage_task_ids: work_members[start..end].to_vec(),
                 checkpoint_task_id: *checkpoint_task_id,
-                decision: decision
-                    .as_deref()
-                    .map(CheckpointDecision::from_str)
-                    .transpose()?,
+                decision,
+                // Only a decided checkpoint's evidence is adjudication
+                // evidence. An undecided one still carries its subject's
+                // inherited evidence or the awaiting-subject placeholder,
+                // which would misread as a verdict.
+                evidence: decision.and(evidence.clone()),
             })
         })
         .collect()
