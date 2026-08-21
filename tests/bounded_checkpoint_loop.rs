@@ -1091,3 +1091,99 @@ fn checkpoint_contracts_are_pinned_at_creation() {
         .to_string();
     assert!(error.contains("immutable"), "{error}");
 }
+
+#[test]
+fn criteria_values_starting_with_a_dash_parse_on_the_cli() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let project_dir = tempfile::tempdir().unwrap();
+    let project = cli(
+        &database,
+        &[
+            "project",
+            "register",
+            "--name",
+            "project",
+            "--path",
+            project_dir.path().to_str().unwrap(),
+        ],
+    )["id"]
+        .to_string();
+    let worker = cli(
+        &database,
+        &[
+            "agent",
+            "register",
+            "--project",
+            &project,
+            "--name",
+            "worker",
+            "--harness",
+            "manual",
+            "--model",
+            "human",
+        ],
+    )["id"]
+        .to_string();
+    cli(
+        &database,
+        &[
+            "agent",
+            "register",
+            "--project",
+            &project,
+            "--name",
+            "adjudicator",
+            "--harness",
+            "manual",
+            "--model",
+            "human",
+            "--settings",
+            "{\"adjudicator\":true}",
+            "--checkpoint",
+        ],
+    );
+
+    let declared = cli(
+        &database,
+        &[
+            "loop",
+            "declare",
+            "--project",
+            &project,
+            "--stage",
+            &format!("{worker}:Work"),
+            "--criteria",
+            "- the criterion holds",
+            "--max-attempts",
+            "1",
+        ],
+    );
+    assert_eq!(declared["criteria"], "- the criterion holds");
+
+    let work = cli(
+        &database,
+        &[
+            "task",
+            "add",
+            "--project",
+            &project,
+            "--agent",
+            &worker,
+            "--description",
+            "Work",
+        ],
+    )["id"]
+        .to_string();
+    let checkpoint = cli(
+        &database,
+        &[
+            "checkpoint",
+            "create",
+            &work,
+            "--criteria",
+            "- the criterion holds",
+        ],
+    );
+    assert_eq!(checkpoint["criteria"], "- the criterion holds");
+}

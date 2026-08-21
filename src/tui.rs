@@ -37,7 +37,7 @@ pub fn snapshot(store: &Store, project_id: Option<i64>) -> Result<String, Domain
 }
 
 /// Restate a loop without transcript access: criteria, attempt number,
-/// remaining budget, decisions, and the next eligible action.
+/// remaining budget, decisions, evidence, and the next eligible action.
 fn snapshot_loop(report: &LoopReport) -> String {
     let mut output = format!(
         "Loop #{} [{}] attempt {}/{} (adjudicator agent {})\n",

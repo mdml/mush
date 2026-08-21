@@ -203,7 +203,7 @@ enum CheckpointCommand {
     /// checkpoint agent adjudicates.
     Create {
         id: i64,
-        #[arg(long, conflicts_with = "criteria_file")]
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "criteria_file")]
         criteria: Option<String>,
         #[arg(long, conflicts_with = "criteria")]
         criteria_file: Option<PathBuf>,
@@ -229,7 +229,7 @@ enum LoopCommand {
         project: i64,
         #[arg(long = "stage", required = true, value_name = "AGENT:TEXT|AGENT:@FILE")]
         stages: Vec<String>,
-        #[arg(long, conflicts_with = "criteria_file")]
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "criteria_file")]
         criteria: Option<String>,
         #[arg(long, conflicts_with = "criteria")]
         criteria_file: Option<PathBuf>,
