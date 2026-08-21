@@ -243,8 +243,8 @@ enum LoopCommand {
     /// Declare the work task the loop's met decision makes eligible. Declared
     /// once, before the named task begins.
     Continuation { loop_id: i64, task_id: i64 },
-    /// Restate one loop: criteria, attempts, decisions, remaining budget, and
-    /// the next eligible action.
+    /// Restate one loop: criteria, attempts, decisions, evidence, remaining
+    /// budget, and the next eligible action.
     Show { id: i64 },
     List {
         #[arg(long)]

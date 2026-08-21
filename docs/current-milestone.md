@@ -12,7 +12,7 @@ This file owns the working state of the active milestone: its outcome, status, g
 
 ## Current slice: staged bounded checkpoint loop
 
-Implement the loop the [bounded checkpoint loop](decisions/2026-08-20-bounded-checkpoint-loop.md) and [staged loop bodies](decisions/2026-08-21-staged-loop-bodies.md) decisions settled: staged loop declaration, per-checkpoint immutable criteria and adjudicator assignment, the `met`/`not_met`/`blocked` vocabulary migration, budget-gated path materialization and queueing with mechanical report passing, the loop-satisfying success continuation, and observation that restates criteria, decision, attempt number, and remaining budget.
+Implement the loop the [bounded checkpoint loop](decisions/2026-08-20-bounded-checkpoint-loop.md) and [staged loop bodies](decisions/2026-08-21-staged-loop-bodies.md) decisions settled: staged loop declaration, per-checkpoint immutable criteria and adjudicator assignment, the `met`/`not_met`/`blocked` vocabulary migration, budget-gated path materialization and queueing with mechanical report passing, the loop-satisfying success continuation, and observation that restates criteria, decision, evidence, attempt number, remaining budget, and next eligible action.
 
 ### Slice brief
 
@@ -40,7 +40,7 @@ This is a forecast, not a schedule. Revise it when review evidence changes what 
 4. Adjudicate the product hypothesis, public decision-authority boundary, and episodic-graph direction before accepting more product behavior. Done 2026-08-20.
 5. Make semantic checkpoint criteria, decisions, and the bounded attempt policy concrete in the maintained abstractions and approve one executable acceptance example. Done 2026-08-20.
 6. Classify existing B-oriented implementation as required episodic mechanism, temporarily tolerable generality, or conflicting product behavior without treating the pending checkpoint-readiness diff as the specification. Done 2026-08-20, adjudicated as the bounded checkpoint loop decision.
-7. Implement only the smallest missing behavior needed for semantic checkpoint criteria, a bounded attempt policy, manual legibility, and mechanical advancement of already-declared work.
+7. Implement only the smallest missing behavior needed for semantic checkpoint criteria, a bounded attempt policy, manual legibility, and mechanical advancement of already-declared work. Done 2026-08-21.
 8. Ship the first Mush skill with the CLI so a fresh coordinator can translate an ordinary goal and collaboration policy into an inspectable episode without private machine or database knowledge.
 9. Run the gate against a real project goal selected at use time, then revise the path from its evidence.
 
