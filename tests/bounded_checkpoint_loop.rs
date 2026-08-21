@@ -681,6 +681,13 @@ fn the_tui_snapshot_restates_a_loop_without_transcript_access() {
     assert!(undecided.contains("remaining attempts: 1"));
     assert!(undecided.contains(&format!("run stage 1 (task {stage})")));
     assert!(!undecided.contains("continuation: #"));
+    // The loop's own evidence line is indented under its attempt; the
+    // checkpoint task's inherited placeholder evidence is not adjudication
+    // evidence and must not read as one.
+    assert!(
+        !undecided.contains("\n    evidence (Markdown):"),
+        "an undecided attempt restates no adjudication evidence: {undecided}"
+    );
 
     let continuation = store
         .add_work_task_args(project, worker, "Continue", None)
@@ -699,6 +706,10 @@ fn the_tui_snapshot_restates_a_loop_without_transcript_access() {
     let decided = mush::tui::snapshot(&store, None).unwrap();
     assert!(decided.contains(&format!("Loop #{loop_id} [satisfied]")));
     assert!(decided.contains("decision: met"));
+    assert!(
+        decided.contains("\n    evidence (Markdown):\n      satisfied\n"),
+        "the decided attempt restates its adjudication evidence: {decided}"
+    );
     assert!(decided.contains(&format!("continuation: #{}", continuation.id)));
     assert!(decided.contains(&format!("(loop #{loop_id})")));
     assert!(decided.contains("criteria (Markdown):"));
@@ -918,6 +929,14 @@ fn the_public_cli_declares_steps_and_restates_a_loop() {
     assert_eq!(shown["status"], "in_progress");
     assert_eq!(shown["remaining_attempts"], 1);
     assert_eq!(shown["attempts"][0]["decision"], "not_met");
+    assert_eq!(
+        shown["attempts"][0]["evidence"], "verification is missing",
+        "the decided attempt restates its adjudication evidence"
+    );
+    assert!(
+        shown["attempts"][1]["evidence"].is_null(),
+        "the fresh attempt is not yet adjudicated: {shown}"
+    );
     assert_eq!(shown["criteria"], "the plan covers the requested behavior");
     assert!(
         shown["next_action"]

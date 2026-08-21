@@ -284,6 +284,10 @@ pub struct LoopAttempt {
     pub stage_task_ids: Vec<i64>,
     pub checkpoint_task_id: i64,
     pub decision: Option<CheckpointDecision>,
+    /// The adjudication evidence recorded with the decision, so a loop reads
+    /// as one task without opening its internal checkpoints. `None` until the
+    /// attempt is adjudicated.
+    pub evidence: Option<String>,
 }
 
 /// The loop restated for a human: declaration, materialized attempts, budget,
