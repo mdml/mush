@@ -514,36 +514,49 @@ fn execution_prompt(
         return Ok(prompt.to_owned());
     }
     match initial.kind {
-        TaskKind::Work => {
-            let mut prompt = initial.description.clone();
-            for (task_id, report) in store.stage_input_reports(initial.id)? {
-                prompt.push_str(&format!(
-                    "\n\n## Input report from task {task_id}\n\n{report}"
-                ));
-            }
-            Ok(prompt)
-        }
-        TaskKind::Checkpoint => {
-            let instructions = harness.review_prompt().ok_or_else(|| {
-                DomainError::Invalid("checkpoint agent has no review_prompt".into())
-            })?;
-            let subject_id = initial.subject_task_id.expect("checkpoint constraint");
-            let subject = store.task(subject_id)?;
-            let criteria = initial
-                .criteria
-                .as_deref()
-                .unwrap_or("(this checkpoint predates declared criteria)");
-            Ok(format!(
-                "{instructions}\n\n## Checkpoint packet\n\nYou are adjudicating the result of task {subject_id} against the declared criteria. Record exactly one decision with evidence mapping it to the criteria:\n\n    mush checkpoint decide {} --decision met|not_met|blocked --evidence \"...\"\n\n### Criteria\n\n{criteria}\n\n### Subject result (task {subject_id})\n\n{}\n\n### Subject evidence\n\n{}",
-                initial.id,
-                subject.result.as_deref().unwrap_or("(no recorded result)"),
-                subject
-                    .evidence
-                    .as_deref()
-                    .unwrap_or("(no recorded evidence)")
-            ))
-        }
+        TaskKind::Work => work_prompt(store, initial),
+        TaskKind::Checkpoint => checkpoint_prompt(store, initial, harness),
     }
+}
+
+/// The immutable declared description, followed by the report of each
+/// same-loop prerequisite stage.
+fn work_prompt(store: &Store, initial: &Task) -> Result<String, DomainError> {
+    let mut prompt = initial.description.clone();
+    for (task_id, report) in store.stage_input_reports(initial.id)? {
+        prompt.push_str(&format!(
+            "\n\n## Input report from task {task_id}\n\n{report}"
+        ));
+    }
+    Ok(prompt)
+}
+
+/// The agent's general adjudication instructions followed by the bounded
+/// checkpoint packet: criteria, subject result and evidence, and the one
+/// decision operation the checkpoint owes.
+fn checkpoint_prompt(
+    store: &Store,
+    initial: &Task,
+    harness: &Harness,
+) -> Result<String, DomainError> {
+    let instructions = harness
+        .review_prompt()
+        .ok_or_else(|| DomainError::Invalid("checkpoint agent has no review_prompt".into()))?;
+    let subject_id = initial.subject_task_id.expect("checkpoint constraint");
+    let subject = store.task(subject_id)?;
+    let criteria = initial
+        .criteria
+        .as_deref()
+        .unwrap_or("(this checkpoint predates declared criteria)");
+    Ok(format!(
+        "{instructions}\n\n## Checkpoint packet\n\nYou are adjudicating the result of task {subject_id} against the declared criteria. Record exactly one decision with evidence mapping it to the criteria:\n\n    mush checkpoint decide {} --decision met|not_met|blocked --evidence \"...\"\n\n### Criteria\n\n{criteria}\n\n### Subject result (task {subject_id})\n\n{}\n\n### Subject evidence\n\n{}",
+        initial.id,
+        subject.result.as_deref().unwrap_or("(no recorded result)"),
+        subject
+            .evidence
+            .as_deref()
+            .unwrap_or("(no recorded evidence)")
+    ))
 }
 
 fn ensure_child_succeeded(

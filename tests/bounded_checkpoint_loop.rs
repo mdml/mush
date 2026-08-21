@@ -430,6 +430,281 @@ fn launch_prompts_carry_stage_reports_and_the_checkpoint_packet() {
 }
 
 #[test]
+fn a_malformed_declaration_is_refused_before_anything_is_materialized() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let (mut store, _project_dir, project, worker, _adjudicator) = fixture(&database);
+    let elsewhere_dir = tempfile::tempdir().unwrap();
+    let elsewhere = store
+        .register_project("elsewhere", elsewhere_dir.path())
+        .unwrap();
+    let foreign = store
+        .register_agent_args(elsewhere.id, "foreign", "manual", "human", "{}", false)
+        .unwrap();
+
+    let declaration =
+        |stages: &[StageSpec<'_>], criteria: &str, max_attempts: i64, project_id: i64| -> String {
+            let mut store = Store::open(&database).unwrap();
+            store
+                .declare_loop(LoopDeclaration {
+                    project_id,
+                    stages,
+                    criteria,
+                    adjudicator_agent_id: None,
+                    max_attempts,
+                    reuse_worktree: false,
+                })
+                .unwrap_err()
+                .to_string()
+        };
+    let stage = |agent_id: i64, description: &'static str| StageSpec {
+        agent_id,
+        description,
+    };
+
+    assert!(declaration(&[], "criteria", 2, project).contains("at least one work stage"));
+    assert!(
+        declaration(&[stage(worker, "work")], "  ", 2, project).contains("criteria are required")
+    );
+    assert!(declaration(&[stage(worker, "work")], "criteria", 0, project).contains("at least 1"));
+    assert!(
+        declaration(&[stage(worker, "work")], "criteria", 2, 9_999).contains("project not found")
+    );
+    assert!(
+        declaration(&[stage(worker, " ")], "criteria", 2, project)
+            .contains("every loop stage requires a description")
+    );
+    assert!(
+        declaration(&[stage(9_999, "work")], "criteria", 2, project).contains("agent not found")
+    );
+    assert!(
+        declaration(&[stage(foreign.id, "work")], "criteria", 2, project)
+            .contains("not registered to this project")
+    );
+    assert!(
+        store.loops(None).unwrap().is_empty(),
+        "a refused declaration materializes nothing"
+    );
+
+    // The adjudicator assignment is validated at declaration too.
+    let plain = tempfile::tempdir().unwrap();
+    let plain_project = store.register_project("plain", plain.path()).unwrap();
+    let plain_agent = store
+        .register_agent_args(plain_project.id, "solo", "manual", "human", "{}", false)
+        .unwrap();
+    let error = store
+        .declare_loop(LoopDeclaration {
+            project_id: plain_project.id,
+            stages: &[stage(plain_agent.id, "work")],
+            criteria: "criteria",
+            adjudicator_agent_id: None,
+            max_attempts: 1,
+            reuse_worktree: false,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no default checkpoint agent"), "{error}");
+    let error = store
+        .declare_loop(LoopDeclaration {
+            project_id: plain_project.id,
+            stages: &[stage(plain_agent.id, "work")],
+            criteria: "criteria",
+            adjudicator_agent_id: Some(foreign.id),
+            max_attempts: 1,
+            reuse_worktree: false,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not registered to this project"), "{error}");
+}
+
+#[test]
+fn a_continuation_declaration_is_refused_unless_it_can_be_gated() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let (mut store, _project_dir, project, worker, _adjudicator) = fixture(&database);
+    let report = declare(&mut store, project, &[(worker, "Work")], 1);
+    let loop_id = report.declaration.id;
+
+    // A checkpoint cannot be gated on a loop.
+    let subject = store
+        .add_work_task_args(project, worker, "Subject", None)
+        .unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(subject.id, "criteria", None)
+        .unwrap();
+    let error = store
+        .declare_loop_continuation(loop_id, checkpoint.id)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("only a work task"), "{error}");
+
+    // Nor may the continuation belong to another project.
+    let elsewhere_dir = tempfile::tempdir().unwrap();
+    let elsewhere = store
+        .register_project("elsewhere", elsewhere_dir.path())
+        .unwrap();
+    let foreign_agent = store
+        .register_agent_args(elsewhere.id, "foreign", "manual", "human", "{}", false)
+        .unwrap();
+    let foreign_task = store
+        .add_work_task_args(elsewhere.id, foreign_agent.id, "Foreign", None)
+        .unwrap();
+    let error = store
+        .declare_loop_continuation(loop_id, foreign_task.id)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("loop's project"), "{error}");
+
+    // Nor a task that has already begun.
+    let started = store
+        .add_work_task_args(project, worker, "Started", None)
+        .unwrap();
+    store
+        .complete_work(started.id, "already done", None)
+        .unwrap();
+    let error = store
+        .declare_loop_continuation(loop_id, started.id)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("before the dependent begins"), "{error}");
+
+    // Declaring the same continuation twice is idempotent, and an unknown
+    // loop or task is reported as missing.
+    let continuation = store
+        .add_work_task_args(project, worker, "Continue", None)
+        .unwrap();
+    store
+        .declare_loop_continuation(loop_id, continuation.id)
+        .unwrap();
+    let repeated = store
+        .declare_loop_continuation(loop_id, continuation.id)
+        .unwrap();
+    assert_eq!(
+        repeated.declaration.continuation_task_id,
+        Some(continuation.id)
+    );
+    assert!(
+        store
+            .declare_loop_continuation(9_999, continuation.id)
+            .unwrap_err()
+            .to_string()
+            .contains("loop not found")
+    );
+    let fresh = declare(&mut store, project, &[(worker, "Fresh")], 1);
+    assert!(
+        store
+            .declare_loop_continuation(fresh.declaration.id, 9_999)
+            .unwrap_err()
+            .to_string()
+            .contains("task not found")
+    );
+}
+
+#[test]
+fn a_satisfied_loop_without_a_continuation_reports_its_own_completion() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let (mut store, _project_dir, project, worker, _adjudicator) = fixture(&database);
+    let report = declare(&mut store, project, &[(worker, "Work")], 2);
+    let stage = report.attempts[0].stage_task_ids[0];
+    store.complete_work(stage, "done", None).unwrap();
+    store
+        .decide_checkpoint(
+            report.attempts[0].checkpoint_task_id,
+            CheckpointDecision::Met,
+            "satisfied",
+        )
+        .unwrap();
+    let satisfied = store.loop_report(report.declaration.id).unwrap();
+    assert_eq!(satisfied.status, LoopStatus::Satisfied);
+    assert!(
+        satisfied.next_action.contains("declares no continuation"),
+        "{}",
+        satisfied.next_action
+    );
+    assert!(store.loop_report(9_999).is_err());
+}
+
+#[test]
+fn a_reused_worktree_carries_into_the_next_attempt() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let (mut store, _project_dir, project, worker, _adjudicator) = fixture(&database);
+    let report = store
+        .declare_loop(LoopDeclaration {
+            project_id: project,
+            stages: &[StageSpec {
+                agent_id: worker,
+                description: "Work in place",
+            }],
+            criteria: "the declared criteria hold",
+            adjudicator_agent_id: None,
+            max_attempts: 2,
+            reuse_worktree: true,
+        })
+        .unwrap();
+    // The first attempt records the worktree it ran in.
+    let stage = report.attempts[0].stage_task_ids[0];
+    store
+        .begin_execution_args(stage, None, Some("shared-worktree"), state.path(), "boot")
+        .unwrap();
+    store.interrupt_execution(stage).unwrap();
+    store.complete_work(stage, "first pass", None).unwrap();
+    let outcome = store
+        .decide_checkpoint(
+            report.attempts[0].checkpoint_task_id,
+            CheckpointDecision::NotMet,
+            "another pass",
+        )
+        .unwrap();
+    assert_eq!(
+        outcome.materialized[0].worktree_name.as_deref(),
+        Some("shared-worktree"),
+        "the declared policy lets the next attempt reuse its counterpart's worktree"
+    );
+}
+
+#[test]
+fn the_tui_snapshot_restates_a_loop_without_transcript_access() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let (mut store, _project_dir, project, worker, _adjudicator) = fixture(&database);
+    let report = declare(&mut store, project, &[(worker, "Work")], 2);
+    let loop_id = report.declaration.id;
+    let stage = report.attempts[0].stage_task_ids[0];
+
+    let undecided = mush::tui::snapshot(&store, Some(project)).unwrap();
+    assert!(undecided.contains(&format!("Loop #{loop_id} [in_progress] attempt 1/2")));
+    assert!(undecided.contains("- the declared behavior is covered"));
+    assert!(undecided.contains("decision: undecided"));
+    assert!(undecided.contains("remaining attempts: 1"));
+    assert!(undecided.contains(&format!("run stage 1 (task {stage})")));
+    assert!(!undecided.contains("continuation: #"));
+
+    let continuation = store
+        .add_work_task_args(project, worker, "Continue", None)
+        .unwrap();
+    store
+        .declare_loop_continuation(loop_id, continuation.id)
+        .unwrap();
+    store.complete_work(stage, "done", None).unwrap();
+    store
+        .decide_checkpoint(
+            report.attempts[0].checkpoint_task_id,
+            CheckpointDecision::Met,
+            "satisfied",
+        )
+        .unwrap();
+    let decided = mush::tui::snapshot(&store, None).unwrap();
+    assert!(decided.contains(&format!("Loop #{loop_id} [satisfied]")));
+    assert!(decided.contains("decision: met"));
+    assert!(decided.contains(&format!("continuation: #{}", continuation.id)));
+    assert!(decided.contains(&format!("(loop #{loop_id})")));
+    assert!(decided.contains("criteria (Markdown):"));
+}
+
+#[test]
 fn the_declared_contract_is_immutable_at_the_schema_layer() {
     let state = tempfile::tempdir().unwrap();
     let database = state.path().join("mush.sqlite");
@@ -653,6 +928,119 @@ fn the_public_cli_declares_steps_and_restates_a_loop() {
     );
     let listed = cli(&database, &["loop", "list", "--project", &project]);
     assert_eq!(listed.as_array().unwrap().len(), 1);
+}
+
+fn cli_failure(database: &std::path::Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_mush"))
+        .arg("--database")
+        .arg(database)
+        .args(arguments)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "{arguments:?} unexpectedly passed"
+    );
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn stage_declarations_accept_files_and_name_their_malformed_input() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    let project_dir = tempfile::tempdir().unwrap();
+    let project = cli(
+        &database,
+        &[
+            "project",
+            "register",
+            "--name",
+            "project",
+            "--path",
+            project_dir.path().to_str().unwrap(),
+        ],
+    )["id"]
+        .to_string();
+    let worker = cli(
+        &database,
+        &[
+            "agent",
+            "register",
+            "--project",
+            &project,
+            "--name",
+            "worker",
+            "--harness",
+            "manual",
+            "--model",
+            "human",
+        ],
+    )["id"]
+        .to_string();
+    cli(
+        &database,
+        &[
+            "agent",
+            "register",
+            "--project",
+            &project,
+            "--name",
+            "adjudicator",
+            "--harness",
+            "manual",
+            "--model",
+            "human",
+            "--settings",
+            "{\"adjudicator\":true}",
+            "--checkpoint",
+        ],
+    );
+    let stage_file = state.path().join("stage.md");
+    std::fs::write(&stage_file, "## Stage\n\nDo the declared work").unwrap();
+    let criteria_file = state.path().join("criteria.md");
+    std::fs::write(&criteria_file, "## Criteria\n\n- it holds").unwrap();
+
+    let declared = cli(
+        &database,
+        &[
+            "loop",
+            "declare",
+            "--project",
+            &project,
+            "--stage",
+            &format!("{worker}:@{}", stage_file.display()),
+            "--criteria-file",
+            criteria_file.to_str().unwrap(),
+            "--max-attempts",
+            "2",
+        ],
+    );
+    assert_eq!(declared["criteria"], "## Criteria\n\n- it holds");
+    let stage = declared["attempts"][0]["stage_task_ids"][0].to_string();
+    let shown = cli(&database, &["task", "show", &stage]);
+    assert_eq!(shown["description"], "## Stage\n\nDo the declared work");
+
+    for (stage_argument, expected) in [
+        ("no-separator", "is not AGENT_ID:DESCRIPTION"),
+        ("notanumber:work", "does not start with an agent id"),
+    ] {
+        let error = cli_failure(
+            &database,
+            &[
+                "loop",
+                "declare",
+                "--project",
+                &project,
+                "--stage",
+                stage_argument,
+                "--criteria",
+                "criteria",
+                "--max-attempts",
+                "1",
+            ],
+        );
+        assert!(error.contains(expected), "{stage_argument}: {error}");
+    }
 }
 
 #[test]
