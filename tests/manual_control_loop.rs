@@ -1211,7 +1211,7 @@ fn headless_cli_and_tui_snapshot_execute_the_acceptance_scenario_across_processe
             "decide",
             &checkpoint_id,
             "--decision",
-            "revision",
+            "not_met",
             "--evidence",
             "## Review\n\nRevise the candidate.",
         ],
@@ -1286,7 +1286,7 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
         let follow_up = restarted
             .decide_checkpoint(
                 checkpoint_id,
-                CheckpointDecision::RevisionRequested,
+                CheckpointDecision::NotMet,
                 "## Decision\n\nPlease address the review.",
             )
             .unwrap()
@@ -1300,10 +1300,7 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
     let restarted_again = Store::open(&database).unwrap();
     let tasks = restarted_again.tasks(None).unwrap();
     assert_eq!(tasks.len(), 3);
-    assert_eq!(
-        tasks[1].decision,
-        Some(CheckpointDecision::RevisionRequested)
-    );
+    assert_eq!(tasks[1].decision, Some(CheckpointDecision::NotMet));
     assert!(
         tui::snapshot(&restarted_again, None)
             .unwrap()
@@ -1313,7 +1310,7 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
 
 #[test]
 fn checkpoint_accept_and_block_do_not_create_follow_up_work() {
-    for decision in [CheckpointDecision::Accepted, CheckpointDecision::Blocked] {
+    for decision in [CheckpointDecision::Met, CheckpointDecision::Blocked] {
         let state = tempfile::tempdir().unwrap();
         let project_dir = tempfile::tempdir().unwrap();
         let database = state.path().join("mush.sqlite");
@@ -1357,15 +1354,11 @@ fn unstarted_revision_can_receive_checkpoint_delta_and_reuse_worktree() {
     store.complete_work(work.id, "Done", None).unwrap();
     let checkpoint = store.create_checkpoint(work.id).unwrap();
     let revision = store
-        .decide_checkpoint(
-            checkpoint.id,
-            CheckpointDecision::RevisionRequested,
-            "Delta",
-        )
+        .decide_checkpoint(checkpoint.id, CheckpointDecision::NotMet, "Delta")
         .unwrap()
         .unwrap();
     assert!(revision.description.contains("Original"));
-    assert!(revision.description.contains("revision_requested"));
+    assert!(revision.description.contains("not_met"));
     assert!(revision.description.contains("Delta"));
     let prepared = store
         .prepare_revision(revision.id, "Fix only the delta", "existing-worktree")
@@ -1507,7 +1500,7 @@ fn revision_of_a_subtask_inherits_the_parent_and_carries_feedback() {
     let revision = store
         .decide_checkpoint(
             checkpoint.id,
-            CheckpointDecision::RevisionRequested,
+            CheckpointDecision::NotMet,
             "## Review\n\nMissing tests.",
         )
         .unwrap()
@@ -1522,7 +1515,7 @@ fn revision_of_a_subtask_inherits_the_parent_and_carries_feedback() {
     );
     assert!(revision.description.contains("Delegated"));
     assert!(revision.description.contains(&format!(
-        "## Checkpoint feedback (task {}, revision_requested)",
+        "## Checkpoint feedback (task {}, not_met)",
         checkpoint.id
     )));
     assert!(revision.description.contains("Missing tests."));
@@ -1633,7 +1626,7 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
     assert!(visible.contains(&format!("awaiting subject: #{} not completed", work.id)));
 
     let premature_decision = store
-        .decide_checkpoint(awaiting.id, CheckpointDecision::Accepted, "Looks done")
+        .decide_checkpoint(awaiting.id, CheckpointDecision::Met, "Looks done")
         .unwrap_err();
     assert!(premature_decision.to_string().contains(&format!(
         "checkpoint {} is awaiting its subject: task {} is not completed",
@@ -1679,7 +1672,7 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
     );
     assert!(
         store
-            .decide_checkpoint(awaiting.id, CheckpointDecision::Accepted, "Reviewed")
+            .decide_checkpoint(awaiting.id, CheckpointDecision::Met, "Reviewed")
             .unwrap()
             .is_none()
     );

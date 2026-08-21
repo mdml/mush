@@ -1295,8 +1295,8 @@ fn migration_backs_up_the_database_before_the_one_way_step() {
     version_three_database(&database);
 
     let store = Store::open(&database).unwrap();
-    assert_eq!(schema_version(&database), 12);
-    let backup = state.path().join("mush.sqlite.pre-v12.bak");
+    assert_eq!(schema_version(&database), 13);
+    let backup = state.path().join("mush.sqlite.pre-v13.bak");
     assert!(backup.is_file(), "the one-way step took a backup first");
     assert_eq!(
         schema_version(&backup),
@@ -1306,6 +1306,72 @@ fn migration_backs_up_the_database_before_the_one_way_step() {
     let task = store.task(1).unwrap();
     assert_eq!(task.execution_status, Some(mush::ExecutionStatus::Running));
     assert_eq!(task.readiness_status, ReadinessStatus::Unqueued);
+}
+
+/// A database at schema version 12 with the M3-era decision vocabulary baked
+/// into its CHECK constraint: the shape the vocabulary migration rebuilds.
+fn version_twelve_database(database: &Path) {
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection.execute_batch(
+        "CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,path TEXT NOT NULL UNIQUE);
+         CREATE TABLE agents(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),name TEXT NOT NULL,harness TEXT NOT NULL,model TEXT NOT NULL,settings TEXT NOT NULL,checkpoint INTEGER NOT NULL DEFAULT 0);
+         CREATE TABLE tasks(
+             id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id),
+             agent_id INTEGER REFERENCES agents(id), kind TEXT NOT NULL CHECK(kind IN ('work','checkpoint')),
+             status TEXT NOT NULL CHECK(status IN ('pending','completed')), description TEXT NOT NULL,
+             result TEXT, evidence TEXT, decision TEXT CHECK(decision IN ('accepted','blocked','revision_requested')),
+             parent_task_id INTEGER REFERENCES tasks(id), previous_task_id INTEGER REFERENCES tasks(id),
+             subject_task_id INTEGER REFERENCES tasks(id),
+             execution_status TEXT, execution_attempt INTEGER NOT NULL DEFAULT 0,
+             session_id TEXT, worktree_name TEXT, artifact_dir TEXT,
+             execution_boot_id TEXT, execution_pid INTEGER,
+             readiness_status TEXT NOT NULL DEFAULT 'unqueued',
+             queue_generation INTEGER NOT NULL DEFAULT 0, intervention TEXT,
+             last_transition_at INTEGER NOT NULL DEFAULT 0);
+         INSERT INTO projects(id,name,path) VALUES(1,'legacy','/tmp/legacy');
+         INSERT INTO agents(id,project_id,name,harness,model,settings,checkpoint) VALUES(1,1,'worker','manual','model','{}',0);
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,result) VALUES(2,1,1,'work','completed','accepted work','done');
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,result) VALUES(3,1,1,'work','completed','revised work','done');
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,result) VALUES(4,1,1,'work','completed','blocked work','done');
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,evidence,decision,subject_task_id) VALUES(5,1,1,'checkpoint','completed','review 2','looks right','accepted',2);
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,evidence,decision,subject_task_id) VALUES(6,1,1,'checkpoint','completed','review 3','needs work','revision_requested',3);
+         INSERT INTO tasks(id,project_id,agent_id,kind,status,description,evidence,decision,subject_task_id) VALUES(7,1,1,'checkpoint','completed','review 4','cannot tell','blocked',4);"
+    ).unwrap();
+    connection.pragma_update(None, "user_version", 12).unwrap();
+}
+
+#[test]
+fn decided_legacy_rows_migrate_to_the_adjudication_vocabulary() {
+    let state = tempfile::tempdir().unwrap();
+    let database = state.path().join("mush.sqlite");
+    version_twelve_database(&database);
+
+    let store = Store::open(&database).unwrap();
+    assert_eq!(schema_version(&database), 13);
+    for (id, decision) in [
+        (5, mush::CheckpointDecision::Met),
+        (6, mush::CheckpointDecision::NotMet),
+        (7, mush::CheckpointDecision::Blocked),
+    ] {
+        let checkpoint = store.task(id).unwrap();
+        assert_eq!(checkpoint.decision, Some(decision), "task {id}");
+        assert_eq!(checkpoint.criteria, None, "migrated rows gain no criteria");
+        assert_eq!(checkpoint.status, mush::TaskStatus::Completed);
+    }
+    assert_eq!(
+        store.task(6).unwrap().evidence.as_deref(),
+        Some("needs work"),
+        "the rebuild copies rows without reinterpreting evidence"
+    );
+    let rebuilt = rusqlite::Connection::open(&database).unwrap();
+    let error = rebuilt
+        .execute("UPDATE tasks SET decision='accepted' WHERE id=5", [])
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("CHECK") || error.contains("immutable") || error.contains("constraint"),
+        "the rebuilt table rejects the old vocabulary: {error}"
+    );
 }
 
 #[test]
@@ -1332,7 +1398,7 @@ fn migration_refuses_while_another_process_holds_the_serve_lock() {
         "nothing migrated underneath the holder"
     );
     assert!(
-        !state.path().join("mush.sqlite.pre-v12.bak").exists(),
+        !state.path().join("mush.sqlite.pre-v13.bak").exists(),
         "a refused migration takes no backup"
     );
 }
@@ -1359,7 +1425,7 @@ fn an_older_binary_refuses_a_newer_database() {
 
 #[test]
 fn unshipped_and_future_schema_versions_are_refused() {
-    for (version, expected) in [(7_i64, "never shipped"), (13, "newer than supported")] {
+    for (version, expected) in [(7_i64, "never shipped"), (14, "newer than supported")] {
         let state = tempfile::tempdir().unwrap();
         let database = state.path().join("mush.sqlite");
         rusqlite::Connection::open(&database)
@@ -2156,7 +2222,7 @@ fn a_declared_work_and_checkpoint_chain_advances_unattended_through_the_runner()
         "decide",
         &checkpoint.to_string(),
         "--decision",
-        "accepted",
+        "met",
         "--evidence",
         "review passed",
     ]);
@@ -2190,7 +2256,7 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
     let follow_up = store
         .decide_checkpoint(
             checkpoint,
-            mush::CheckpointDecision::RevisionRequested,
+            mush::CheckpointDecision::NotMet,
             "needs another pass",
         )
         .unwrap()
@@ -2215,7 +2281,7 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
     store.queue(dependent).unwrap();
     assert!(
         store
-            .decide_checkpoint(checkpoint, mush::CheckpointDecision::Accepted, "fine")
+            .decide_checkpoint(checkpoint, mush::CheckpointDecision::Met, "fine")
             .unwrap()
             .is_none()
     );
@@ -2276,7 +2342,7 @@ fn a_queued_checkpoint_blocks_until_its_subject_completes() {
         .to_string();
     assert!(error.contains("prerequisites are not completed"), "{error}");
     let error = store
-        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Accepted, "early")
+        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Met, "early")
         .unwrap_err()
         .to_string();
     assert!(error.contains("awaiting its subject"), "{error}");
@@ -2290,7 +2356,7 @@ fn a_queued_checkpoint_blocks_until_its_subject_completes() {
 
     // Deciding a ready checkpoint by hand settles its queue bookkeeping too.
     store
-        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Accepted, "fine")
+        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Met, "fine")
         .unwrap();
     assert_eq!(
         store.task(checkpoint).unwrap().readiness_status,
@@ -2413,7 +2479,7 @@ fn deciding_a_checkpoint_during_its_own_execution_keeps_one_coherent_outcome() {
     store
         .decide_checkpoint(
             checkpoint,
-            mush::CheckpointDecision::Accepted,
+            mush::CheckpointDecision::Met,
             "adjudicated during review",
         )
         .unwrap();
@@ -2434,7 +2500,7 @@ fn deciding_a_checkpoint_during_its_own_execution_keeps_one_coherent_outcome() {
         )
         .unwrap();
     assert_eq!(finished.status, mush::TaskStatus::Completed);
-    assert_eq!(finished.decision, Some(mush::CheckpointDecision::Accepted));
+    assert_eq!(finished.decision, Some(mush::CheckpointDecision::Met));
     assert_eq!(
         finished.evidence.as_deref(),
         Some("adjudicated during review")
@@ -2503,15 +2569,15 @@ fn tui_snapshot_exposes_checkpoint_decision_states() {
     assert!(snapshot.contains("awaiting decision"), "{snapshot}");
 
     store
-        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Accepted, "fine")
+        .decide_checkpoint(checkpoint, mush::CheckpointDecision::Met, "fine")
         .unwrap();
     let snapshot = mush::tui::snapshot(&store, None).unwrap();
     assert!(!snapshot.contains("awaiting decision"), "{snapshot}");
-    assert!(snapshot.contains("decision: accepted"), "{snapshot}");
+    assert!(snapshot.contains("decision: met"), "{snapshot}");
 }
 
 #[test]
-fn a_version_eleven_database_migrates_to_twelve_with_the_new_triggers() {
+fn a_version_eleven_database_migrates_to_thirteen_with_the_new_triggers() {
     let state = tempfile::tempdir().unwrap();
     let database = state.path().join("mush.sqlite");
     drop(Store::open(&database).unwrap());
@@ -2529,9 +2595,9 @@ fn a_version_eleven_database_migrates_to_twelve_with_the_new_triggers() {
     }
 
     drop(Store::open(&database).unwrap());
-    assert_eq!(schema_version(&database), 12);
+    assert_eq!(schema_version(&database), 13);
     assert!(
-        state.path().join("mush.sqlite.pre-v12.bak").is_file(),
+        state.path().join("mush.sqlite.pre-v13.bak").is_file(),
         "the one-way step took a backup first"
     );
     let connection = rusqlite::Connection::open(&database).unwrap();
@@ -2542,7 +2608,7 @@ fn a_version_eleven_database_migrates_to_twelve_with_the_new_triggers() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(triggers, 4, "migration reinstalled the subject gates");
+    assert_eq!(triggers, 6, "migration reinstalled the subject gates");
 }
 
 #[cfg(unix)]
@@ -2590,7 +2656,7 @@ fn a_decision_adjudicates_past_a_parked_review() {
     store
         .decide_checkpoint(
             checkpoint,
-            mush::CheckpointDecision::Accepted,
+            mush::CheckpointDecision::Met,
             "reviewed by hand",
         )
         .unwrap();

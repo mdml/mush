@@ -216,9 +216,9 @@ fn handle_key(selected: &mut usize, task_count: usize, key: KeyCode) -> UiAction
             *selected = selected.saturating_sub(1);
             UiAction::Continue
         }
-        KeyCode::Char('a') => UiAction::Decide(CheckpointDecision::Accepted),
+        KeyCode::Char('m') => UiAction::Decide(CheckpointDecision::Met),
         KeyCode::Char('b') => UiAction::Decide(CheckpointDecision::Blocked),
-        KeyCode::Char('r') => UiAction::Decide(CheckpointDecision::RevisionRequested),
+        KeyCode::Char('n') => UiAction::Decide(CheckpointDecision::NotMet),
         _ => UiAction::Continue,
     }
 }
@@ -295,7 +295,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, tasks: &[Task], selected: usize) {
             .style(Style::default().fg(Color::White))
             .block(
                 Block::default()
-                    .title("Evidence (a accept, b block, r revise)")
+                    .title("Evidence (m met, n not met, b blocked)")
                     .title_style(Style::default().add_modifier(Modifier::BOLD))
                     .borders(Borders::ALL),
             ),

@@ -152,17 +152,17 @@ impl FromStr for TaskStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckpointDecision {
-    Accepted,
+    Met,
+    NotMet,
     Blocked,
-    RevisionRequested,
 }
 
 impl fmt::Display for CheckpointDecision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Accepted => "accepted",
+            Self::Met => "met",
+            Self::NotMet => "not_met",
             Self::Blocked => "blocked",
-            Self::RevisionRequested => "revision_requested",
         })
     }
 }
@@ -171,9 +171,9 @@ impl FromStr for CheckpointDecision {
     type Err = DomainError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "accepted" | "accept" => Ok(Self::Accepted),
-            "blocked" | "block" => Ok(Self::Blocked),
-            "revision_requested" | "revision" | "revise" => Ok(Self::RevisionRequested),
+            "met" => Ok(Self::Met),
+            "not_met" | "not-met" => Ok(Self::NotMet),
+            "blocked" => Ok(Self::Blocked),
             _ => Err(DomainError::Invalid(format!(
                 "unknown checkpoint decision: {value}"
             ))),
@@ -216,10 +216,12 @@ pub struct Task {
     pub description: String,
     pub result: Option<String>,
     pub evidence: Option<String>,
+    pub criteria: Option<String>,
     pub decision: Option<CheckpointDecision>,
     pub parent_task_id: Option<i64>,
     pub previous_task_id: Option<i64>,
     pub subject_task_id: Option<i64>,
+    pub loop_id: Option<i64>,
     pub execution_status: Option<ExecutionStatus>,
     pub execution_attempt: i64,
     pub session_id: Option<String>,

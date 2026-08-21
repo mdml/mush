@@ -598,7 +598,7 @@ fn direct_database_writes_cannot_bypass_checkpoint_subject_gating() {
         "UPDATE tasks SET readiness_status='ready' WHERE id=?1",
         "UPDATE tasks SET readiness_status='claimed' WHERE id=?1",
         "UPDATE tasks SET execution_status='running' WHERE id=?1",
-        "UPDATE tasks SET decision='accepted' WHERE id=?1",
+        "UPDATE tasks SET decision='met' WHERE id=?1",
     ] {
         let error = connection
             .execute(statement, [checkpoint])

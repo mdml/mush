@@ -269,7 +269,7 @@ impl Store {
             params![checkpoint_id, decision.to_string(), evidence],
         )?;
         record_transition_and_advance(&tx, checkpoint_id, "checkpoint_decided")?;
-        let follow_up_id = if decision == CheckpointDecision::RevisionRequested {
+        let follow_up_id = if decision == CheckpointDecision::NotMet {
             let subject = query_task(&tx, subject_id)?
                 .ok_or(DomainError::NotFound("subject task", subject_id))?;
             // Carry the checkpoint's decision and evidence into the follow-up

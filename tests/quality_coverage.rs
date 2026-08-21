@@ -67,18 +67,18 @@ fn domain_names_round_trip_and_reject_unknown_values() {
         assert_eq!(TaskStatus::from_str(text).unwrap(), value);
         assert_eq!(value.to_string(), text);
     }
-    for alias in ["revision_requested", "revision", "revise"] {
+    for alias in ["not_met", "not-met"] {
         assert_eq!(
             CheckpointDecision::from_str(alias).unwrap(),
-            CheckpointDecision::RevisionRequested
+            CheckpointDecision::NotMet
         );
     }
     assert_eq!(
-        CheckpointDecision::from_str("accept").unwrap().to_string(),
-        "accepted"
+        CheckpointDecision::from_str("met").unwrap().to_string(),
+        "met"
     );
     assert_eq!(
-        CheckpointDecision::from_str("block").unwrap().to_string(),
+        CheckpointDecision::from_str("blocked").unwrap().to_string(),
         "blocked"
     );
 
@@ -274,14 +274,14 @@ fn cli_mutations_accept_file_inputs_and_report_json_outcomes() {
             "decide",
             &checkpoint_id,
             "--decision",
-            "accepted",
+            "met",
             "--evidence",
             "reviewed",
         ],
     );
     assert!(decided.is_null());
     let checkpoint = successful_json(&database, &["task", "show", &checkpoint_id]);
-    assert_eq!(checkpoint["decision"], "accepted");
+    assert_eq!(checkpoint["decision"], "met");
     assert!(successful_json(&database, &["runner", "status"]).is_object());
     let snapshot = mush_command(&database, &["tui", "--snapshot", "--project", &project_id]);
     assert!(snapshot.status.success());
