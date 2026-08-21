@@ -10,8 +10,9 @@ pub mod tui;
 use std::path::{Path, PathBuf};
 
 pub use domain::{
-    Agent, CheckpointDecision, DomainError, ExecutionStatus, Project, ReadinessStatus,
-    RunnerCounts, RunnerReport, Task, TaskKind, TaskObservation, TaskStatus,
+    Agent, CheckpointDecision, DecisionOutcome, DomainError, ExecutionStatus, Loop, LoopAttempt,
+    LoopReport, LoopStage, LoopStatus, Project, ReadinessStatus, RunnerCounts, RunnerReport, Task,
+    TaskKind, TaskObservation, TaskStatus,
 };
 pub use executor::Executor;
 pub use store::Store;

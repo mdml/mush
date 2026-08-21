@@ -234,6 +234,80 @@ pub struct Task {
     pub intervention: Option<String>,
 }
 
+/// A declared bounded loop: an ordered path of work stages adjudicated by one
+/// checkpoint per attempt. The declaration is immutable; loop progress is
+/// derived from its materialized member tasks, never stored.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Loop {
+    pub id: i64,
+    pub project_id: i64,
+    pub criteria: String,
+    pub adjudicator_agent_id: i64,
+    pub max_attempts: i64,
+    pub reuse_worktree: bool,
+    pub continuation_task_id: Option<i64>,
+}
+
+/// One declared stage of a loop's path.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct LoopStage {
+    pub position: i64,
+    pub agent_id: i64,
+    pub description: String,
+}
+
+/// Where a loop stands, derived entirely from its member tasks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopStatus {
+    InProgress,
+    Satisfied,
+    Blocked,
+    Exhausted,
+}
+
+impl fmt::Display for LoopStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::InProgress => "in_progress",
+            Self::Satisfied => "satisfied",
+            Self::Blocked => "blocked",
+            Self::Exhausted => "exhausted",
+        })
+    }
+}
+
+/// One materialized execution of the loop's path.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct LoopAttempt {
+    pub number: i64,
+    pub stage_task_ids: Vec<i64>,
+    pub checkpoint_task_id: i64,
+    pub decision: Option<CheckpointDecision>,
+}
+
+/// The loop restated for a human: declaration, materialized attempts, budget,
+/// and the next eligible action, without transcript access.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct LoopReport {
+    #[serde(flatten)]
+    pub declaration: Loop,
+    pub stages: Vec<LoopStage>,
+    pub attempts: Vec<LoopAttempt>,
+    pub remaining_attempts: i64,
+    pub status: LoopStatus,
+    pub next_action: String,
+}
+
+/// A checkpoint decision plus whatever the loop policy materialized under it:
+/// the next attempt's stage tasks and checkpoint on `not_met` with budget
+/// remaining, and nothing otherwise.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DecisionOutcome {
+    pub checkpoint: Task,
+    pub materialized: Vec<Task>,
+}
+
 /// What the runner surface reports about a database: how much queued work is
 /// waiting, owned, and parked.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

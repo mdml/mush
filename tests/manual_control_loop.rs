@@ -55,7 +55,9 @@ fn claude_executor_persists_artifacts_and_runs_an_independent_checkpoint() {
     assert_eq!(completed.kind, TaskKind::Work);
     assert_eq!(completed.status, TaskStatus::Completed);
     assert_eq!(completed.execution_status, Some(ExecutionStatus::Succeeded));
-    let checkpoint = store.create_checkpoint(work.id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(work.id, "the declared criteria hold", None)
+        .unwrap();
     assert_eq!(checkpoint.kind, TaskKind::Checkpoint);
     assert_eq!(checkpoint.subject_task_id, Some(work.id));
     let reviewed = Executor::new(&database)
@@ -174,7 +176,9 @@ fn interrupted_execution_resumes_same_session_after_restart() {
         .unwrap();
     assert_eq!(completed.session_id.as_deref(), Some(session_id.as_str()));
     assert_eq!(completed.execution_attempt, 2);
-    let checkpoint = restarted.create_checkpoint(work_id).unwrap();
+    let checkpoint = restarted
+        .create_checkpoint_args(work_id, "the declared criteria hold", None)
+        .unwrap();
     assert_eq!(checkpoint.subject_task_id, Some(work_id));
     assert_eq!(restarted.tasks(None).unwrap().len(), 2);
 }
@@ -295,7 +299,9 @@ fn cursor_executor_captures_session_owns_worktree_and_reviews_independently() {
         .unwrap();
     assert_eq!(completed.kind, TaskKind::Work);
     assert_eq!(completed.status, TaskStatus::Completed);
-    let checkpoint = store.create_checkpoint(work_id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(work_id, "the declared criteria hold", None)
+        .unwrap();
     assert_eq!(checkpoint.kind, TaskKind::Checkpoint);
     assert_eq!(completed.execution_status, Some(ExecutionStatus::Succeeded));
     assert_eq!(completed.session_id.as_deref(), Some("chat-1234"));
@@ -758,7 +764,9 @@ fn codex_executor_captures_thread_owns_worktree_and_reviews_independently() {
     assert!(first.contains(&"approval_policy=\"never\"".to_owned()));
     assert!(first.contains(&"model_reasoning_effort=\"medium\"".to_owned()));
     assert_eq!(first.last().map(String::as_str), Some("-"));
-    let checkpoint = store.create_checkpoint(work_id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(work_id, "the declared criteria hold", None)
+        .unwrap();
     let reviewed = Executor::new(&database)
         .run(
             &mut store,
@@ -1195,15 +1203,23 @@ fn headless_cli_and_tui_snapshot_execute_the_acceptance_scenario_across_processe
 
     let checkpoint: Value = serde_json::from_str(&cli(
         &database,
-        &["--json", "checkpoint", "create", &work_id_text],
+        &[
+            "--json",
+            "checkpoint",
+            "create",
+            &work_id_text,
+            "--criteria",
+            "## Criteria\n\n- the manual checks are recorded",
+        ],
     ))
     .unwrap();
     let checkpoint_id = checkpoint["id"].as_i64().unwrap().to_string();
     let review = cli(&database, &["tui", "--snapshot"]);
     assert!(review.contains("[checkpoint / pending]"));
     assert!(review.contains("## Checks"));
+    assert!(review.contains("the manual checks are recorded"));
 
-    let follow_up: Value = serde_json::from_str(&cli(
+    let outcome: Value = serde_json::from_str(&cli(
         &database,
         &[
             "--json",
@@ -1217,14 +1233,12 @@ fn headless_cli_and_tui_snapshot_execute_the_acceptance_scenario_across_processe
         ],
     ))
     .unwrap();
-    assert_eq!(follow_up["previous_task_id"], work_id);
+    assert_eq!(outcome["checkpoint"]["decision"], "not_met");
     assert!(
-        follow_up["description"]
-            .as_str()
-            .unwrap()
-            .contains("Revise the candidate.")
+        outcome["materialized"].as_array().unwrap().is_empty(),
+        "outside a declared loop, not_met adjudicates without creating work"
     );
-    assert!(cli(&database, &["tui", "--snapshot"]).contains(&format!("(previous #{work_id})")));
+    assert!(cli(&database, &["tui", "--snapshot"]).contains("decision: not_met"));
 }
 
 #[test]
@@ -1265,14 +1279,18 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
         assert_eq!(completed.status, TaskStatus::Completed);
         assert_eq!(store.tasks(Some(project.id)).unwrap().len(), 1);
 
-        let checkpoint = store.create_checkpoint(work.id).unwrap();
+        let checkpoint = store
+            .create_checkpoint_args(work.id, "the declared criteria hold", None)
+            .unwrap();
         checkpoint_id = checkpoint.id;
         assert_eq!(checkpoint.kind, TaskKind::Checkpoint);
         assert_eq!(checkpoint.subject_task_id, Some(work.id));
 
         let retry = store.complete_work(work.id, "ignored retry", None).unwrap();
         assert_eq!(retry.id, work.id);
-        let repeated = store.create_checkpoint(work.id).unwrap();
+        let repeated = store
+            .create_checkpoint_args(work.id, "the declared criteria hold", None)
+            .unwrap();
         assert_eq!(repeated.id, checkpoint.id);
         assert_eq!(store.tasks(Some(project.id)).unwrap().len(), 2);
 
@@ -1283,29 +1301,29 @@ fn manual_control_loop_persists_and_revision_creates_one_linked_attempt() {
 
     {
         let mut restarted = Store::open(&database).unwrap();
-        let follow_up = restarted
+        let outcome = restarted
             .decide_checkpoint(
                 checkpoint_id,
                 CheckpointDecision::NotMet,
                 "## Decision\n\nPlease address the review.",
             )
-            .unwrap()
             .unwrap();
-        assert_eq!(follow_up.previous_task_id, Some(work_id));
-        assert_eq!(follow_up.status, TaskStatus::Pending);
-        assert_eq!(follow_up.kind, TaskKind::Work);
-        assert_eq!(restarted.tasks(None).unwrap().len(), 3);
+        assert_eq!(
+            outcome.checkpoint.decision,
+            Some(CheckpointDecision::NotMet)
+        );
+        assert!(
+            outcome.materialized.is_empty(),
+            "outside a declared loop, not_met adjudicates only; fresh judgment owns any revision"
+        );
+        assert_eq!(restarted.tasks(None).unwrap().len(), 2);
     }
 
     let restarted_again = Store::open(&database).unwrap();
     let tasks = restarted_again.tasks(None).unwrap();
-    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks.len(), 2);
     assert_eq!(tasks[1].decision, Some(CheckpointDecision::NotMet));
-    assert!(
-        tui::snapshot(&restarted_again, None)
-            .unwrap()
-            .contains(&format!("(previous #{work_id})"))
-    );
+    let _ = work_id;
 }
 
 #[test]
@@ -1325,12 +1343,15 @@ fn checkpoint_accept_and_block_do_not_create_follow_up_work() {
             .add_work_task_args(project.id, agent.id, "Work", None)
             .unwrap();
         store.complete_work(work.id, "Done", None).unwrap();
-        let checkpoint = store.create_checkpoint(work.id).unwrap();
+        let checkpoint = store
+            .create_checkpoint_args(work.id, "the declared criteria hold", None)
+            .unwrap();
         assert!(
             store
                 .decide_checkpoint(checkpoint.id, decision, "Reviewed")
                 .unwrap()
-                .is_none()
+                .materialized
+                .is_empty()
         );
         assert_eq!(store.tasks(None).unwrap().len(), 2);
     }
@@ -1348,15 +1369,26 @@ fn unstarted_revision_can_receive_checkpoint_delta_and_reuse_worktree() {
     let agent = store
         .register_agent_args(project.id, "reviewer", "manual", "human", "{}", true)
         .unwrap();
-    let work = store
-        .add_work_task_args(project.id, agent.id, "Original", None)
+    let report = store
+        .declare_loop(mush::store::LoopDeclaration {
+            project_id: project.id,
+            stages: &[mush::store::StageSpec {
+                agent_id: agent.id,
+                description: "Original",
+            }],
+            criteria: "the declared criteria hold",
+            adjudicator_agent_id: None,
+            max_attempts: 2,
+            reuse_worktree: false,
+        })
         .unwrap();
-    store.complete_work(work.id, "Done", None).unwrap();
-    let checkpoint = store.create_checkpoint(work.id).unwrap();
-    let revision = store
-        .decide_checkpoint(checkpoint.id, CheckpointDecision::NotMet, "Delta")
-        .unwrap()
+    let work = report.attempts[0].stage_task_ids[0];
+    let checkpoint = report.attempts[0].checkpoint_task_id;
+    store.complete_work(work, "Done", None).unwrap();
+    let outcome = store
+        .decide_checkpoint(checkpoint, CheckpointDecision::NotMet, "Delta")
         .unwrap();
+    let revision = outcome.materialized[0].clone();
     assert!(revision.description.contains("Original"));
     assert!(revision.description.contains("not_met"));
     assert!(revision.description.contains("Delta"));
@@ -1365,7 +1397,7 @@ fn unstarted_revision_can_receive_checkpoint_delta_and_reuse_worktree() {
         .unwrap();
     assert_eq!(prepared.description, "Fix only the delta");
     assert_eq!(prepared.worktree_name.as_deref(), Some("existing-worktree"));
-    assert_eq!(prepared.previous_task_id, Some(work.id));
+    assert_eq!(prepared.previous_task_id, Some(work));
 }
 
 fn delegation_fixture(database: &std::path::Path) -> (Store, tempfile::TempDir, i64, i64) {
@@ -1420,7 +1452,9 @@ fn delegation_is_fenced_to_one_level_of_work_tasks_in_the_domain() {
     store.complete_work(subtask.id, "Done", None).unwrap();
     store.complete_work(sibling.id, "Done", None).unwrap();
     store.complete_work(coordinator.id, "Done", None).unwrap();
-    let checkpoint = store.create_checkpoint(coordinator.id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(coordinator.id, "the declared criteria hold", None)
+        .unwrap();
     let checkpoint_parent = store
         .add_work_task_args(project_id, worker_id, "Reviewer work", Some(checkpoint.id))
         .unwrap_err();
@@ -1469,7 +1503,9 @@ fn delegation_fence_is_guaranteed_in_the_schema() {
 
     store.complete_work(subtask.id, "Done", None).unwrap();
     store.complete_work(coordinator.id, "Done", None).unwrap();
-    let checkpoint = store.create_checkpoint(coordinator.id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(coordinator.id, "the declared criteria hold", None)
+        .unwrap();
     drop(store);
     let checkpoint_parent = raw
         .execute(
@@ -1485,7 +1521,7 @@ fn delegation_fence_is_guaranteed_in_the_schema() {
 }
 
 #[test]
-fn revision_of_a_subtask_inherits_the_parent_and_carries_feedback() {
+fn a_subtask_checkpoint_adjudicates_without_creating_follow_up_work() {
     let state = tempfile::tempdir().unwrap();
     let database = state.path().join("mush.sqlite");
     let (mut store, _project_dir, project_id, worker_id) = delegation_fixture(&database);
@@ -1496,29 +1532,28 @@ fn revision_of_a_subtask_inherits_the_parent_and_carries_feedback() {
         .add_work_task_args(project_id, worker_id, "Delegated", Some(coordinator.id))
         .unwrap();
     store.complete_work(subtask.id, "Done", None).unwrap();
-    let checkpoint = store.create_checkpoint(subtask.id).unwrap();
-    let revision = store
+    let checkpoint = store
+        .create_checkpoint_args(subtask.id, "the declared criteria hold", None)
+        .unwrap();
+    let outcome = store
         .decide_checkpoint(
             checkpoint.id,
             CheckpointDecision::NotMet,
             "## Review\n\nMissing tests.",
         )
-        .unwrap()
         .unwrap();
-    assert_eq!(revision.parent_task_id, Some(coordinator.id));
-    assert_eq!(revision.previous_task_id, Some(subtask.id));
-    // The checkpoint reviews its named subject only; a newer attempt does not
-    // re-target it.
+    // The checkpoint owns adjudication only: outside a declared loop, not_met
+    // materializes nothing, and the checkpoint keeps its named subject.
+    assert!(outcome.materialized.is_empty());
     assert_eq!(
         store.task(checkpoint.id).unwrap().subject_task_id,
         Some(subtask.id)
     );
-    assert!(revision.description.contains("Delegated"));
-    assert!(revision.description.contains(&format!(
-        "## Checkpoint feedback (task {}, not_met)",
-        checkpoint.id
-    )));
-    assert!(revision.description.contains("Missing tests."));
+    assert_eq!(
+        store.task(checkpoint.id).unwrap().evidence.as_deref(),
+        Some("## Review\n\nMissing tests.")
+    );
+    let _ = coordinator;
 }
 
 #[test]
@@ -1534,7 +1569,9 @@ fn completing_work_no_longer_creates_a_checkpoint_until_asked() {
     let unreviewed = tui::snapshot(&store, None).unwrap();
     assert!(unreviewed.contains("no checkpoint yet"));
 
-    let checkpoint = store.create_checkpoint(work.id).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(work.id, "the declared criteria hold", None)
+        .unwrap();
     assert_eq!(checkpoint.subject_task_id, Some(work.id));
     let reviewed = tui::snapshot(&store, None).unwrap();
     assert!(!reviewed.contains("no checkpoint yet"));
@@ -1614,13 +1651,21 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
         .add_work_task_args(project_id, worker_id, "Work", None)
         .unwrap();
 
-    let awaiting = store.create_checkpoint(work.id).unwrap();
+    let awaiting = store
+        .create_checkpoint_args(work.id, "the declared criteria hold", None)
+        .unwrap();
     assert_eq!(awaiting.subject_task_id, Some(work.id));
     assert_eq!(
         awaiting.evidence.as_deref(),
         Some("Awaiting subject completion; evidence pending.")
     );
-    assert_eq!(store.create_checkpoint(work.id).unwrap().id, awaiting.id);
+    assert_eq!(
+        store
+            .create_checkpoint_args(work.id, "the declared criteria hold", None)
+            .unwrap()
+            .id,
+        awaiting.id
+    );
 
     let visible = tui::snapshot(&store, None).unwrap();
     assert!(visible.contains(&format!("awaiting subject: #{} not completed", work.id)));
@@ -1674,7 +1719,8 @@ fn checkpoint_awaiting_its_subject_waits_then_syncs_evidence() {
         store
             .decide_checkpoint(awaiting.id, CheckpointDecision::Met, "Reviewed")
             .unwrap()
-            .is_none()
+            .materialized
+            .is_empty()
     );
 }
 
@@ -1713,7 +1759,9 @@ fn checkpoint_awaiting_its_subject_runs_after_completion_with_synced_evidence() 
     let work = store
         .add_work_task_args(project.id, worker.id, "Work", None)
         .unwrap();
-    let awaiting = store.create_checkpoint(work.id).unwrap();
+    let awaiting = store
+        .create_checkpoint_args(work.id, "the declared criteria hold", None)
+        .unwrap();
     assert!(
         Executor::new(&database)
             .run(

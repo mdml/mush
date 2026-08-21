@@ -1752,7 +1752,9 @@ fn dependency_validation_covers_projects_kinds_late_edges_and_limit() {
         )
         .unwrap();
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap();
     assert!(
         store
             .add_dependency(root, checkpoint.id)
@@ -1948,7 +1950,9 @@ fn stale_checkpoint_executor_cannot_finish_a_replacement_attempt() {
         .register_agent_args(project, "reviewer", "manual", "human", "{}", true)
         .unwrap();
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap();
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap();
     let boot = mush::executor::boot_id();
     let first = store
         .begin_execution_args(
@@ -2173,7 +2177,10 @@ fn a_declared_work_and_checkpoint_chain_advances_unattended_through_the_runner()
     runnable.reviewer();
     let work = runnable.task("work under review");
     let mut store = runnable.store();
-    let checkpoint = store.create_checkpoint(work).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(work, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     let gated = runnable.task("gated by acceptance");
     store.add_dependency(checkpoint, gated).unwrap();
     for id in [work, checkpoint, gated] {
@@ -2246,22 +2253,27 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
     let (_state, _project_dir, mut store, root, dependent) = graph();
     manual_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.add_dependency(checkpoint, dependent).unwrap();
     store.queue(dependent).unwrap();
     assert_eq!(
         store.task(dependent).unwrap().readiness_status,
         ReadinessStatus::Blocked
     );
-    let follow_up = store
+    let outcome = store
         .decide_checkpoint(
             checkpoint,
             mush::CheckpointDecision::NotMet,
             "needs another pass",
         )
-        .unwrap()
-        .expect("a requested revision creates the linked follow-up");
-    assert_eq!(follow_up.previous_task_id, Some(root));
+        .unwrap();
+    assert!(
+        outcome.materialized.is_empty(),
+        "outside a declared loop, not_met adjudicates without creating work"
+    );
     let decided = store.task(checkpoint).unwrap();
     assert_eq!(decided.status, mush::TaskStatus::Completed);
     assert_eq!(decided.readiness_status, ReadinessStatus::Unqueued);
@@ -2276,14 +2288,18 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
     let (_state, _project_dir, mut store, root, dependent) = graph();
     manual_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.add_dependency(checkpoint, dependent).unwrap();
     store.queue(dependent).unwrap();
     assert!(
         store
             .decide_checkpoint(checkpoint, mush::CheckpointDecision::Met, "fine")
             .unwrap()
-            .is_none()
+            .materialized
+            .is_empty()
     );
     assert_eq!(
         store.task(dependent).unwrap().readiness_status,
@@ -2295,7 +2311,10 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
     let (_state, _project_dir, mut store, root, dependent) = graph();
     manual_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.add_dependency(checkpoint, dependent).unwrap();
     store.queue(dependent).unwrap();
     assert!(
@@ -2306,7 +2325,8 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
                 "missing authority"
             )
             .unwrap()
-            .is_none()
+            .materialized
+            .is_empty()
     );
     assert_eq!(
         store.task(checkpoint).unwrap().status,
@@ -2323,7 +2343,10 @@ fn acceptance_and_requested_revision_advance_the_graph_differently() {
 fn a_queued_checkpoint_blocks_until_its_subject_completes() {
     let (state, _project_dir, mut store, root, _dependent) = graph();
     executable_reviewer(&store, root);
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.queue(checkpoint).unwrap();
     assert_eq!(
         store.task(checkpoint).unwrap().readiness_status,
@@ -2370,9 +2393,12 @@ fn queueing_a_checkpoint_with_a_manual_reviewer_is_refused() {
     let (_state, _project_dir, mut store, root, _dependent) = graph();
     manual_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     let error = store.queue(checkpoint).unwrap_err().to_string();
-    assert!(error.contains("reviewer Mush cannot execute"), "{error}");
+    assert!(error.contains("adjudicator Mush cannot execute"), "{error}");
     assert_eq!(
         store.task(checkpoint).unwrap().readiness_status,
         ReadinessStatus::Unqueued
@@ -2385,7 +2411,10 @@ fn an_executed_undecided_review_rests_until_its_decision() {
     let (state, _project_dir, mut store, root, _dependent) = graph();
     executable_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.queue(checkpoint).unwrap();
     let boot = mush::executor::boot_id();
     assert!(
@@ -2453,7 +2482,10 @@ fn deciding_a_checkpoint_during_its_own_execution_keeps_one_coherent_outcome() {
     let (state, _project_dir, mut store, root, dependent) = graph();
     executable_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.add_dependency(checkpoint, dependent).unwrap();
     store.queue(dependent).unwrap();
     store.queue(checkpoint).unwrap();
@@ -2515,7 +2547,10 @@ fn deciding_a_checkpoint_during_its_own_execution_keeps_one_coherent_outcome() {
 fn an_edge_gating_a_checkpoints_subject_is_rejected_directly_and_transitively() {
     let (_state, _project_dir, mut store, root, other) = graph();
     manual_reviewer(&store, root);
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     let error = store
         .add_dependency(checkpoint, root)
         .unwrap_err()
@@ -2538,7 +2573,10 @@ fn concurrent_starts_do_not_double_run_a_ready_checkpoint() {
     runnable.queue(work);
     assert!(runnable.run(&["runner", "start"]).status.success());
     let mut store = runnable.store();
-    let checkpoint = store.create_checkpoint(work).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(work, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     runnable.queue(checkpoint);
     let id = checkpoint.to_string();
     let racers = [
@@ -2560,7 +2598,10 @@ fn concurrent_starts_do_not_double_run_a_ready_checkpoint() {
 fn tui_snapshot_exposes_checkpoint_decision_states() {
     let (_state, _project_dir, mut store, root, _dependent) = graph();
     manual_reviewer(&store, root);
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     let snapshot = mush::tui::snapshot(&store, None).unwrap();
     assert!(snapshot.contains(&format!("awaiting subject: #{root} not completed")));
 
@@ -2608,7 +2649,7 @@ fn a_version_eleven_database_migrates_to_thirteen_with_the_new_triggers() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(triggers, 6, "migration reinstalled the subject gates");
+    assert_eq!(triggers, 7, "migration reinstalled the subject gates");
 }
 
 #[cfg(unix)]
@@ -2617,7 +2658,10 @@ fn a_decision_adjudicates_past_a_parked_review() {
     let (state, _project_dir, mut store, root, dependent) = graph();
     executable_reviewer(&store, root);
     store.complete_work(root, "done", None).unwrap();
-    let checkpoint = store.create_checkpoint(root).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint_args(root, "the declared criteria hold", None)
+        .unwrap()
+        .id;
     store.add_dependency(checkpoint, dependent).unwrap();
     store.queue(dependent).unwrap();
     store.queue(checkpoint).unwrap();

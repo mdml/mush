@@ -20,6 +20,13 @@ pub trait StoreTestExt {
         parent_task_id: Option<i64>,
     ) -> Result<Task, DomainError>;
 
+    fn create_checkpoint_args(
+        &mut self,
+        subject_task_id: i64,
+        criteria: &str,
+        adjudicator_agent_id: Option<i64>,
+    ) -> Result<Task, DomainError>;
+
     fn claim_launch_args(
         &mut self,
         task_id: i64,
@@ -81,6 +88,19 @@ impl StoreTestExt for Store {
         })
     }
 
+    fn create_checkpoint_args(
+        &mut self,
+        subject_task_id: i64,
+        criteria: &str,
+        adjudicator_agent_id: Option<i64>,
+    ) -> Result<Task, DomainError> {
+        self.create_checkpoint(mush::store::CheckpointRequest {
+            subject_task_id,
+            criteria,
+            adjudicator_agent_id,
+        })
+    }
+
     fn claim_launch_args(
         &mut self,
         task_id: i64,
@@ -133,6 +153,7 @@ impl StoreTestExt for Store {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 pub fn install_script(path: &std::path::Path, script: &str) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::write(path, script).unwrap();
@@ -142,6 +163,7 @@ pub fn install_script(path: &std::path::Path, script: &str) {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 pub fn fake_claude(path: &std::path::Path, succeeds: bool) {
     let outcome = if succeeds {
         "printf '%s\\n' '{\"type\":\"result\",\"result\":\"fake executor result\"}'"
@@ -157,6 +179,7 @@ pub fn fake_claude(path: &std::path::Path, succeeds: bool) {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 pub fn claude_settings(executable: &std::path::Path, review_prompt: Option<&str>) -> String {
     serde_json::json!({
         "executable": executable,
@@ -172,6 +195,7 @@ pub fn claude_settings(executable: &std::path::Path, review_prompt: Option<&str>
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 pub fn git_project(path: &std::path::Path) {
     for arguments in [
         vec!["init", "-q"],

@@ -1,4 +1,6 @@
-use crate::{CheckpointDecision, DomainError, ReadinessStatus, Store, Task, TaskKind, TaskStatus};
+use crate::{
+    CheckpointDecision, DomainError, LoopReport, ReadinessStatus, Store, Task, TaskKind, TaskStatus,
+};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -27,7 +29,46 @@ pub fn snapshot(store: &Store, project_id: Option<i64>) -> Result<String, Domain
             &completed,
         ));
     }
+    for report in store.loops(project_id)? {
+        output.push_str(&snapshot_loop(&report));
+    }
     Ok(output)
+}
+
+/// Restate a loop without transcript access: criteria, attempt number,
+/// remaining budget, decisions, and the next eligible action.
+fn snapshot_loop(report: &LoopReport) -> String {
+    let mut output = format!(
+        "Loop #{} [{}] attempt {}/{} (adjudicator agent {})\n",
+        report.declaration.id,
+        report.status,
+        report.attempts.len(),
+        report.declaration.max_attempts,
+        report.declaration.adjudicator_agent_id
+    );
+    output.push_str("  criteria (Markdown):\n");
+    for line in report.declaration.criteria.lines() {
+        output.push_str(&format!("    {line}\n"));
+    }
+    for attempt in &report.attempts {
+        output.push_str(&format!(
+            "  attempt {}: stages {:?}, checkpoint #{}, decision: {}\n",
+            attempt.number,
+            attempt.stage_task_ids,
+            attempt.checkpoint_task_id,
+            attempt
+                .decision
+                .map_or_else(|| "undecided".to_owned(), |decision| decision.to_string())
+        ));
+    }
+    if let Some(continuation) = report.declaration.continuation_task_id {
+        output.push_str(&format!("  continuation: #{continuation}\n"));
+    }
+    output.push_str(&format!(
+        "  remaining attempts: {}\n  next: {}\n",
+        report.remaining_attempts, report.next_action
+    ));
+    output
 }
 
 fn snapshot_task(
@@ -47,7 +88,19 @@ fn snapshot_task(
     }
     output.push_str(&review_summary(task, reviewed, completed));
     output.push_str(&execution_summary(task));
+    output.push_str(&criteria_summary(task));
     output.push_str(&evidence_summary(task));
+    output
+}
+
+fn criteria_summary(task: &Task) -> String {
+    let Some(criteria) = &task.criteria else {
+        return String::new();
+    };
+    let mut output = String::from("  criteria (Markdown):\n");
+    for line in criteria.lines() {
+        output.push_str(&format!("    {line}\n"));
+    }
     output
 }
 
@@ -61,6 +114,9 @@ fn relationship_summary(task: &Task) -> String {
     }
     if let Some(previous) = task.previous_task_id {
         output.push_str(&format!(" (previous #{previous})"));
+    }
+    if let Some(loop_id) = task.loop_id {
+        output.push_str(&format!(" (loop #{loop_id})"));
     }
     output
 }
@@ -305,7 +361,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, tasks: &[Task], selected: usize) {
 
 fn task_details(task: &Task) -> String {
     format!(
-        "Task #{}\nKind: {}\nStatus: {}\nReadiness: {}\nExecution: {}\nAttempt: {}\nParent: {}\nSubject: {}\nPrevious: {}\nDecision: {}\nIntervention: {}\nArtifacts: {}\n\nMarkdown evidence\n{}",
+        "Task #{}\nKind: {}\nStatus: {}\nReadiness: {}\nExecution: {}\nAttempt: {}\nParent: {}\nSubject: {}\nPrevious: {}\nLoop: {}\nDecision: {}\nIntervention: {}\nArtifacts: {}\n\nCriteria\n{}\n\nMarkdown evidence\n{}",
         task.id,
         task.kind,
         task.status,
@@ -319,9 +375,12 @@ fn task_details(task: &Task) -> String {
             .map_or_else(|| "—".into(), |id| format!("#{id}")),
         task.previous_task_id
             .map_or_else(|| "—".into(), |id| format!("#{id}")),
+        task.loop_id
+            .map_or_else(|| "—".into(), |id| format!("#{id}")),
         task.decision.map_or_else(|| "—".into(), |d| d.to_string()),
         task.intervention.as_deref().unwrap_or("—"),
         task.artifact_dir.as_deref().unwrap_or("—"),
+        task.criteria.as_deref().unwrap_or("—"),
         task.evidence.as_deref().unwrap_or("—")
     )
 }

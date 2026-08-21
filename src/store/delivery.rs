@@ -1,10 +1,13 @@
 use super::*;
 
-/// A queued checkpoint needs a reviewer the runner can actually launch. A
-/// manual reviewer's checkpoint would otherwise become a ready delivery no
+/// A queued checkpoint needs an adjudicator the runner can actually launch. A
+/// human adjudicator's checkpoint would otherwise become a ready delivery no
 /// execution can ever claim, which parks as an intervention recovery cannot
 /// fix; it is decided through the TUI or `checkpoint decide` without queueing.
-fn ensure_reviewer_is_executable(connection: &Connection, task: &Task) -> Result<(), DomainError> {
+fn ensure_adjudicator_is_executable(
+    connection: &Connection,
+    task: &Task,
+) -> Result<(), DomainError> {
     let harness: Option<String> = connection
         .query_row(
             "SELECT harness FROM agents WHERE id=?1",
@@ -19,7 +22,7 @@ fn ensure_reviewer_is_executable(connection: &Connection, task: &Task) -> Result
         return Ok(());
     }
     Err(DomainError::Invalid(format!(
-        "checkpoint {} is assigned to a reviewer Mush cannot execute; decide it with checkpoint decide or the TUI instead of queueing it",
+        "checkpoint {} is assigned to an adjudicator Mush cannot execute; decide it with checkpoint decide or the TUI instead of queueing it",
         task.id
     )))
 }
@@ -46,7 +49,7 @@ impl Store {
             ));
         }
         if task.kind == TaskKind::Checkpoint {
-            ensure_reviewer_is_executable(&tx, &task)?;
+            ensure_adjudicator_is_executable(&tx, &task)?;
         }
         if task.readiness_status != ReadinessStatus::Unqueued {
             return Ok(task);
@@ -56,15 +59,7 @@ impl Store {
                 "task {task_id} is already executing and cannot be queued"
             )));
         }
-        let ready = prerequisites_satisfied(&tx, task_id)?;
-        let state = if ready { "ready" } else { "blocked" };
-        tx.execute("UPDATE tasks SET queue_generation=queue_generation+1,readiness_status=?2,intervention=NULL WHERE id=?1", params![task_id,state])?;
-        let generation = queue_generation(&tx, task_id)?;
-        if ready {
-            tx.execute("INSERT OR IGNORE INTO launch_deliveries(task_id,generation,state) VALUES(?1,?2,'pending')", params![task_id,generation])?;
-        }
-        insert_transition(&tx, task_id, "queued")?;
-        ensure_launch_invariant(&tx, task_id)?;
+        queue_pending_task(&tx, task_id)?;
         tx.commit()?;
         self.task(task_id)
     }

@@ -129,7 +129,13 @@ fn deciding_the_selected_checkpoint_persists_its_evidence_and_decision() {
     store
         .complete_work(work.id, "result", Some("subject evidence"))
         .unwrap();
-    let checkpoint = store.create_checkpoint(work.id).unwrap();
+    let checkpoint = store
+        .create_checkpoint(crate::store::CheckpointRequest {
+            subject_task_id: work.id,
+            criteria: "the declared criteria hold",
+            adjudicator_agent_id: None,
+        })
+        .unwrap();
     let tasks = store.tasks(Some(project.id)).unwrap();
     let selected = tasks
         .iter()
