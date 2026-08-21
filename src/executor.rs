@@ -169,7 +169,7 @@ impl PreparedExecution {
         let resuming = initial.session_id.is_some() && !request.options.restart_session;
         let session_id = execution_session(store, &initial, &harness, request.options)?;
         let worktree_name = execution_worktree(&initial, request.task_id, request.options.worktree);
-        let prompt = execution_prompt(&initial, &harness, request.options.prompt_override)?;
+        let prompt = execution_prompt(store, &initial, &harness, request.options.prompt_override)?;
         let artifact_dir = artifacts_root.join(format!("task-{}", request.task_id));
         fs::create_dir_all(&artifact_dir)?;
         write_once(&artifact_dir.join("prompt.md"), prompt.as_bytes())?;
@@ -492,7 +492,15 @@ fn execution_worktree(initial: &Task, task_id: i64, requested: Option<&str>) -> 
     })
 }
 
+/// Assemble the launch prompt from durable graph state. A loop stage receives
+/// the report of each same-loop prerequisite stage after its immutable
+/// description, and a checkpoint receives its agent's general adjudication
+/// instructions followed by the bounded checkpoint packet: criteria, subject
+/// result and evidence, and the decision operation it owes. The prompt is
+/// persisted in the task's artifacts, so the assembled inputs stay
+/// inspectable without a transcript.
 fn execution_prompt(
+    store: &Store,
     initial: &Task,
     harness: &Harness,
     override_prompt: Option<&str>,
@@ -506,11 +514,35 @@ fn execution_prompt(
         return Ok(prompt.to_owned());
     }
     match initial.kind {
-        TaskKind::Work => Ok(initial.description.clone()),
-        TaskKind::Checkpoint => harness
-            .review_prompt()
-            .map(str::to_owned)
-            .ok_or_else(|| DomainError::Invalid("checkpoint agent has no review_prompt".into())),
+        TaskKind::Work => {
+            let mut prompt = initial.description.clone();
+            for (task_id, report) in store.stage_input_reports(initial.id)? {
+                prompt.push_str(&format!(
+                    "\n\n## Input report from task {task_id}\n\n{report}"
+                ));
+            }
+            Ok(prompt)
+        }
+        TaskKind::Checkpoint => {
+            let instructions = harness.review_prompt().ok_or_else(|| {
+                DomainError::Invalid("checkpoint agent has no review_prompt".into())
+            })?;
+            let subject_id = initial.subject_task_id.expect("checkpoint constraint");
+            let subject = store.task(subject_id)?;
+            let criteria = initial
+                .criteria
+                .as_deref()
+                .unwrap_or("(this checkpoint predates declared criteria)");
+            Ok(format!(
+                "{instructions}\n\n## Checkpoint packet\n\nYou are adjudicating the result of task {subject_id} against the declared criteria. Record exactly one decision with evidence mapping it to the criteria:\n\n    mush checkpoint decide {} --decision met|not_met|blocked --evidence \"...\"\n\n### Criteria\n\n{criteria}\n\n### Subject result (task {subject_id})\n\n{}\n\n### Subject evidence\n\n{}",
+                initial.id,
+                subject.result.as_deref().unwrap_or("(no recorded result)"),
+                subject
+                    .evidence
+                    .as_deref()
+                    .unwrap_or("(no recorded evidence)")
+            ))
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 mod delivery;
 mod execution;
 mod graph;
+mod loops;
 mod observation;
 mod query;
 mod recovery;
@@ -9,8 +10,9 @@ mod tasks;
 mod workflow;
 
 use crate::domain::{
-    Agent, CheckpointDecision, DomainError, ExecutionStatus, Project, ReadinessStatus,
-    RunnerCounts, Task, TaskKind, TaskObservation, TaskStatus,
+    Agent, CheckpointDecision, DecisionOutcome, DomainError, ExecutionStatus, Loop, LoopAttempt,
+    LoopReport, LoopStage, LoopStatus, Project, ReadinessStatus, RunnerCounts, Task, TaskKind,
+    TaskObservation, TaskStatus,
 };
 use observation::*;
 use query::*;
@@ -41,6 +43,31 @@ pub struct WorkTaskRequest<'a> {
     pub agent_id: i64,
     pub description: &'a str,
     pub parent_task_id: Option<i64>,
+}
+
+/// A checkpoint declaration: the subject under adjudication, the immutable
+/// criteria, and an explicit adjudicator or `None` for the project default.
+pub struct CheckpointRequest<'a> {
+    pub subject_task_id: i64,
+    pub criteria: &'a str,
+    pub adjudicator_agent_id: Option<i64>,
+}
+
+/// One declared stage of a loop's path.
+pub struct StageSpec<'a> {
+    pub agent_id: i64,
+    pub description: &'a str,
+}
+
+/// A bounded loop declaration: the ordered stage path, the per-attempt
+/// checkpoint contract, and the semantic-attempt budget.
+pub struct LoopDeclaration<'a> {
+    pub project_id: i64,
+    pub stages: &'a [StageSpec<'a>],
+    pub criteria: &'a str,
+    pub adjudicator_agent_id: Option<i64>,
+    pub max_attempts: i64,
+    pub reuse_worktree: bool,
 }
 
 pub struct LaunchClaim<'a> {

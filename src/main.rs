@@ -3,7 +3,7 @@ use mush::{
     CheckpointDecision, DomainError, ReadinessStatus, Store, TaskKind, TaskStatus, database_path,
     executor::RunOptions,
     runner,
-    store::{AgentRegistration, WorkTaskRequest},
+    store::{AgentRegistration, CheckpointRequest, LoopDeclaration, StageSpec, WorkTaskRequest},
 };
 use std::{
     path::PathBuf,
@@ -38,6 +38,13 @@ enum Command {
     Checkpoint {
         #[command(subcommand)]
         command: CheckpointCommand,
+    },
+    /// Declare and inspect bounded loops: an ordered path of work stages
+    /// adjudicated by one checkpoint per attempt, with a semantic-attempt
+    /// budget and an optional success continuation.
+    Loop {
+        #[command(subcommand)]
+        command: LoopCommand,
     },
     Tui {
         #[arg(long)]
@@ -191,8 +198,17 @@ enum TaskCommand {
 
 #[derive(Subcommand)]
 enum CheckpointCommand {
+    /// Declare the checkpoint adjudicating one work task's result against
+    /// immutable criteria. Without --adjudicator, the project's default
+    /// checkpoint agent adjudicates.
     Create {
         id: i64,
+        #[arg(long, conflicts_with = "criteria_file")]
+        criteria: Option<String>,
+        #[arg(long, conflicts_with = "criteria")]
+        criteria_file: Option<PathBuf>,
+        #[arg(long)]
+        adjudicator: Option<i64>,
     },
     Decide {
         id: i64,
@@ -200,6 +216,39 @@ enum CheckpointCommand {
         decision: CheckpointDecision,
         #[arg(long)]
         evidence: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LoopCommand {
+    /// Declare a bounded loop and materialize its first attempt. Each --stage
+    /// is AGENT_ID:DESCRIPTION or AGENT_ID:@FILE, in path order; materialized
+    /// tasks whose agent Mush can execute are queued immediately.
+    Declare {
+        #[arg(long)]
+        project: i64,
+        #[arg(long = "stage", required = true, value_name = "AGENT:TEXT|AGENT:@FILE")]
+        stages: Vec<String>,
+        #[arg(long, conflicts_with = "criteria_file")]
+        criteria: Option<String>,
+        #[arg(long, conflicts_with = "criteria")]
+        criteria_file: Option<PathBuf>,
+        #[arg(long)]
+        adjudicator: Option<i64>,
+        #[arg(long)]
+        max_attempts: i64,
+        #[arg(long, help = "Later attempts reuse their stage counterpart's worktree")]
+        reuse_worktree: bool,
+    },
+    /// Declare the work task the loop's met decision makes eligible. Declared
+    /// once, before the named task begins.
+    Continuation { loop_id: i64, task_id: i64 },
+    /// Restate one loop: criteria, attempts, decisions, remaining budget, and
+    /// the next eligible action.
+    Show { id: i64 },
+    List {
+        #[arg(long)]
+        project: Option<i64>,
     },
 }
 
@@ -234,6 +283,7 @@ fn dispatch(store: &mut Store, command: Command, json: bool) -> Result<i32, Doma
         Command::Agent { command } => run_agent_command(store, command, json)?,
         Command::Task { command } => return run_task_command(store, command, json),
         Command::Checkpoint { command } => run_checkpoint_command(store, command, json)?,
+        Command::Loop { command } => run_loop_command(store, command, json)?,
         Command::Tui { snapshot, project } => run_tui(store, snapshot, project)?,
         Command::Runner { command } => return run_runner_command(store, command, json),
     }
@@ -554,12 +604,92 @@ fn run_checkpoint_command(
     json: bool,
 ) -> Result<(), DomainError> {
     match command {
-        CheckpointCommand::Create { id } => output(&store.create_checkpoint(id)?, json),
+        CheckpointCommand::Create {
+            id,
+            criteria,
+            criteria_file,
+            adjudicator,
+        } => {
+            let criteria = input(criteria, criteria_file.as_deref(), "criteria", "")?;
+            output(
+                &store.create_checkpoint(CheckpointRequest {
+                    subject_task_id: id,
+                    criteria: &criteria,
+                    adjudicator_agent_id: adjudicator,
+                })?,
+                json,
+            )
+        }
         CheckpointCommand::Decide {
             id,
             decision,
             evidence,
         } => output(&store.decide_checkpoint(id, decision, &evidence)?, json),
+    }
+}
+
+/// A declared stage: `AGENT_ID:DESCRIPTION`, or `AGENT_ID:@FILE` to read the
+/// description from a file.
+fn parse_stage(value: &str) -> Result<(i64, String), DomainError> {
+    let (agent, description) = value.split_once(':').ok_or_else(|| {
+        DomainError::Invalid(format!(
+            "stage {value:?} is not AGENT_ID:DESCRIPTION or AGENT_ID:@FILE"
+        ))
+    })?;
+    let agent = agent.trim().parse::<i64>().map_err(|_| {
+        DomainError::Invalid(format!("stage {value:?} does not start with an agent id"))
+    })?;
+    let description = match description.strip_prefix('@') {
+        Some(path) => std::fs::read_to_string(path)?,
+        None => description.to_owned(),
+    };
+    Ok((agent, description))
+}
+
+fn run_loop_command(
+    store: &mut Store,
+    command: LoopCommand,
+    json: bool,
+) -> Result<(), DomainError> {
+    match command {
+        LoopCommand::Declare {
+            project,
+            stages,
+            criteria,
+            criteria_file,
+            adjudicator,
+            max_attempts,
+            reuse_worktree,
+        } => {
+            let criteria = input(criteria, criteria_file.as_deref(), "criteria", "")?;
+            let parsed = stages
+                .iter()
+                .map(|stage| parse_stage(stage))
+                .collect::<Result<Vec<_>, _>>()?;
+            let specs: Vec<StageSpec<'_>> = parsed
+                .iter()
+                .map(|(agent_id, description)| StageSpec {
+                    agent_id: *agent_id,
+                    description,
+                })
+                .collect();
+            output(
+                &store.declare_loop(LoopDeclaration {
+                    project_id: project,
+                    stages: &specs,
+                    criteria: &criteria,
+                    adjudicator_agent_id: adjudicator,
+                    max_attempts,
+                    reuse_worktree,
+                })?,
+                json,
+            )
+        }
+        LoopCommand::Continuation { loop_id, task_id } => {
+            output(&store.declare_loop_continuation(loop_id, task_id)?, json)
+        }
+        LoopCommand::Show { id } => output(&store.loop_report(id)?, json),
+        LoopCommand::List { project } => output(&store.loops(project)?, json),
     }
 }
 

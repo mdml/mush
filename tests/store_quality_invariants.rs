@@ -433,7 +433,14 @@ fn execution_entry_and_completion_enforce_task_kind_and_lifecycle() {
         .store
         .complete_work(subject_id, "done", Some("subject evidence"))
         .unwrap();
-    let checkpoint = fixture.store.create_checkpoint(subject_id).unwrap();
+    let checkpoint = fixture
+        .store
+        .create_checkpoint(mush::store::CheckpointRequest {
+            subject_task_id: subject_id,
+            criteria: "the declared criteria hold",
+            adjudicator_agent_id: None,
+        })
+        .unwrap();
     let running_checkpoint = fixture.start(checkpoint.id);
     let work_error = fixture
         .store
@@ -591,7 +598,14 @@ fn direct_database_writes_cannot_bypass_checkpoint_subject_gating() {
         })
         .unwrap();
     let mut store = Store::open(&fixture.database).unwrap();
-    let checkpoint = store.create_checkpoint(subject).unwrap().id;
+    let checkpoint = store
+        .create_checkpoint(mush::store::CheckpointRequest {
+            subject_task_id: subject,
+            criteria: "the declared criteria hold",
+            adjudicator_agent_id: None,
+        })
+        .unwrap()
+        .id;
     let connection = rusqlite::Connection::open(&fixture.database).unwrap();
 
     for statement in [

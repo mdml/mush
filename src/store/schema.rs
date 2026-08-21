@@ -301,6 +301,12 @@ const CURRENT_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS projects (
             BEGIN
                 SELECT RAISE(ABORT, 'a checkpoint is never retargeted to another subject');
             END;
+            CREATE TRIGGER IF NOT EXISTS checkpoint_requires_criteria
+            BEFORE INSERT ON tasks
+            WHEN NEW.kind = 'checkpoint' AND (NEW.criteria IS NULL OR trim(NEW.criteria) = '')
+            BEGIN
+                SELECT RAISE(ABORT, 'a checkpoint requires declared criteria');
+            END;
             CREATE TRIGGER IF NOT EXISTS checkpoint_criteria_immutable
             BEFORE UPDATE OF criteria ON tasks
             WHEN NEW.criteria IS NOT OLD.criteria

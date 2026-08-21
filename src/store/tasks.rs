@@ -1,5 +1,49 @@
 use super::*;
 
+/// Resolve a checkpoint's adjudicator: the explicit assignment, or the
+/// project's default checkpoint agent when none is given. The assignment is
+/// validated here so a defective adjudication configuration surfaces at
+/// declaration rather than at execution.
+pub(super) fn resolve_adjudicator(
+    connection: &Connection,
+    project_id: i64,
+    explicit: Option<i64>,
+) -> Result<i64, DomainError> {
+    let agent_id = match explicit {
+        Some(id) => id,
+        None => connection
+            .query_row(
+                "SELECT id FROM agents WHERE project_id=?1 AND checkpoint=1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                DomainError::Invalid(
+                    "no adjudicator was assigned and the project has no default checkpoint agent"
+                        .into(),
+                )
+            })?,
+    };
+    let row: Option<(i64, String, String)> = connection
+        .query_row(
+            "SELECT project_id,harness,settings FROM agents WHERE id=?1",
+            [agent_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((agent_project, harness, settings)) = row else {
+        return Err(DomainError::NotFound("agent", agent_id));
+    };
+    if agent_project != project_id {
+        return Err(DomainError::Invalid(format!(
+            "adjudicator agent {agent_id} is not registered to this project"
+        )));
+    }
+    crate::executor::validate_agent_registration(&harness, &settings, true)?;
+    Ok(agent_id)
+}
+
 fn revision_can_be_prepared(task: &Task) -> bool {
     task.kind == TaskKind::Work
         && task.status == TaskStatus::Pending
@@ -166,11 +210,26 @@ impl Store {
         self.task(task_id)
     }
 
-    /// Explicitly create the one checkpoint reviewing a work task. Creating it
-    /// before the subject completes records declared review intent and leaves
-    /// the checkpoint awaiting its subject; creating it again returns the
-    /// existing checkpoint.
-    pub fn create_checkpoint(&mut self, subject_task_id: i64) -> Result<Task, DomainError> {
+    /// Explicitly create the one checkpoint adjudicating a work task, with its
+    /// immutable criteria and an explicit adjudicator or the project default.
+    /// Creating it before the subject completes records declared intent and
+    /// leaves the checkpoint awaiting its subject; creating it again with the
+    /// same contract returns the existing checkpoint, while a different
+    /// contract is refused because the declaration cannot move.
+    pub fn create_checkpoint(
+        &mut self,
+        request: CheckpointRequest<'_>,
+    ) -> Result<Task, DomainError> {
+        let CheckpointRequest {
+            subject_task_id,
+            criteria,
+            adjudicator_agent_id,
+        } = request;
+        if criteria.trim().is_empty() {
+            return Err(DomainError::Invalid(
+                "checkpoint criteria are required".into(),
+            ));
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -182,23 +241,23 @@ impl Store {
             ));
         }
         if let Some(existing) = query_checkpoint(&tx, subject_task_id)? {
-            return Ok(existing);
+            let same_contract = existing.criteria.as_deref() == Some(criteria)
+                && adjudicator_agent_id.is_none_or(|agent| existing.agent_id == Some(agent));
+            if same_contract {
+                return Ok(existing);
+            }
+            return Err(DomainError::Invalid(format!(
+                "task {subject_task_id} already has checkpoint {} and its criteria and adjudicator are immutable",
+                existing.id
+            )));
         }
-        let checkpoint_agent: Option<i64> = tx
-            .query_row(
-                "SELECT id FROM agents WHERE project_id=?1 AND checkpoint=1",
-                [subject.project_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let checkpoint_agent = checkpoint_agent
-            .ok_or_else(|| DomainError::Invalid("project has no checkpoint agent".into()))?;
+        let adjudicator = resolve_adjudicator(&tx, subject.project_id, adjudicator_agent_id)?;
         let evidence = if subject.status == TaskStatus::Completed {
             subject_evidence(&subject)
         } else {
             AWAITING_SUBJECT_EVIDENCE.to_owned()
         };
-        tx.execute("INSERT INTO tasks(project_id,agent_id,kind,status,description,evidence,subject_task_id) VALUES(?1,?2,'checkpoint','pending',?3,?4,?5)", params![subject.project_id,checkpoint_agent,format!("Review work task {subject_task_id}: {}", subject.description),evidence,subject_task_id])?;
+        tx.execute("INSERT INTO tasks(project_id,agent_id,kind,status,description,evidence,criteria,subject_task_id) VALUES(?1,?2,'checkpoint','pending',?3,?4,?5,?6)", params![subject.project_id,adjudicator,format!("Adjudicate work task {subject_task_id} against the declared criteria: {}", subject.description),evidence,criteria,subject_task_id])?;
         let checkpoint_id = tx.last_insert_rowid();
         tx.commit()?;
         self.task(checkpoint_id)
@@ -232,12 +291,18 @@ impl Store {
         self.task(checkpoint_id)
     }
 
+    /// Record one adjudication decision with its evidence. The checkpoint owns
+    /// adjudication only: it never creates follow-up work on its own
+    /// authority. When the checkpoint is a loop member, the loop policy
+    /// materializes and queues the next path attempt on `not_met` while the
+    /// declared budget permits one, and materializes nothing on `met`,
+    /// `blocked`, or budget exhaustion.
     pub fn decide_checkpoint(
         &mut self,
         checkpoint_id: i64,
         decision: CheckpointDecision,
         evidence: &str,
-    ) -> Result<Option<Task>, DomainError> {
+    ) -> Result<DecisionOutcome, DomainError> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -269,22 +334,25 @@ impl Store {
             params![checkpoint_id, decision.to_string(), evidence],
         )?;
         record_transition_and_advance(&tx, checkpoint_id, "checkpoint_decided")?;
-        let follow_up_id = if decision == CheckpointDecision::NotMet {
-            let subject = query_task(&tx, subject_id)?
-                .ok_or(DomainError::NotFound("subject task", subject_id))?;
-            // Carry the checkpoint's decision and evidence into the follow-up
-            // description so the revision does not depend on transcript access.
-            let description = format!(
-                "{}\n\n## Checkpoint feedback (task {checkpoint_id}, {decision})\n\n{evidence}",
-                subject.description
-            );
-            tx.execute("INSERT INTO tasks(project_id,agent_id,kind,status,description,parent_task_id,previous_task_id) VALUES(?1,?2,'work','pending',?3,?4,?5)", params![subject.project_id,subject.agent_id,description,subject.parent_task_id,subject.id])?;
-            Some(tx.last_insert_rowid())
-        } else {
-            None
+        let materialized = match (decision, checkpoint.loop_id) {
+            (CheckpointDecision::NotMet, Some(loop_id)) => {
+                super::loops::materialize_next_attempt_within_budget(
+                    &tx,
+                    loop_id,
+                    checkpoint_id,
+                    evidence,
+                )?
+            }
+            _ => Vec::new(),
         };
         tx.commit()?;
-        follow_up_id.map(|id| self.task(id)).transpose()
+        Ok(DecisionOutcome {
+            checkpoint: self.task(checkpoint_id)?,
+            materialized: materialized
+                .into_iter()
+                .map(|id| self.task(id))
+                .collect::<Result<_, _>>()?,
+        })
     }
 
     pub fn project(&self, id: i64) -> Result<Project, DomainError> {

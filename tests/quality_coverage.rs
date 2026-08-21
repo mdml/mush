@@ -265,7 +265,16 @@ fn cli_mutations_accept_file_inputs_and_report_json_outcomes() {
         ],
     );
     assert_eq!(completed["status"], "completed");
-    let checkpoint = successful_json(&database, &["checkpoint", "create", &first_id]);
+    let checkpoint = successful_json(
+        &database,
+        &[
+            "checkpoint",
+            "create",
+            &first_id,
+            "--criteria",
+            "the declared criteria hold",
+        ],
+    );
     let checkpoint_id = checkpoint["id"].as_i64().unwrap().to_string();
     let decided = successful_json(
         &database,
@@ -279,7 +288,8 @@ fn cli_mutations_accept_file_inputs_and_report_json_outcomes() {
             "reviewed",
         ],
     );
-    assert!(decided.is_null());
+    assert_eq!(decided["checkpoint"]["decision"], "met");
+    assert!(decided["materialized"].as_array().unwrap().is_empty());
     let checkpoint = successful_json(&database, &["task", "show", &checkpoint_id]);
     assert_eq!(checkpoint["decision"], "met");
     assert!(successful_json(&database, &["runner", "status"]).is_object());

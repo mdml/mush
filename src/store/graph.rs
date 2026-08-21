@@ -29,6 +29,16 @@ fn validate_dependency_tasks(prerequisite: &Task, dependent: &Task) -> Result<()
             "a checkpoint prerequisite cannot gate its own subject".into(),
         ));
     }
+    // From outside, a loop reads as one task: an edge onto an internal attempt
+    // or checkpoint is the mis-declared continuation a later attempt's `met`
+    // could never satisfy. The loop's own stage chain is materialized by the
+    // policy rather than declared through this operation.
+    if let Some(loop_id) = prerequisite.loop_id {
+        return Err(DomainError::Invalid(format!(
+            "task {} is internal to loop {loop_id}; declare the dependency through the loop's success continuation instead",
+            prerequisite.id
+        )));
+    }
     if prerequisite.project_id != dependent.project_id {
         return Err(DomainError::Invalid(
             "dependency tasks must belong to the same project".into(),
