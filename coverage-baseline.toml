@@ -8,8 +8,8 @@ production_paths = ["src/"]
 non_executable = ["src/store.rs"]
 
 [baseline]
-line = 91.14
-branch = 84.13
+line = 92.10
+branch = 86.34
 
 [floor]
 line = 90.0
